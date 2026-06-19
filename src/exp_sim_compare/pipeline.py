@@ -9,7 +9,7 @@ import pandas as pd
 from .alignment import align_simulation_diameter
 from .branches import split_loading_unloading
 from .channels import add_derived_channels, channel_names, comparison_channel
-from .config import resolve_path
+from .config import feature_enabled, resolve_path, resolve_study_path, study_root
 from .interpolation import (
     build_interpolated_curve,
     interp_sim_to_test,
@@ -254,15 +254,38 @@ def process_dataset(
 
 
 def comparison_output_folder(config: dict[str, Any]) -> Path:
+    comparison_cfg = config.get("comparison", {})
+    if "output_folder" in comparison_cfg:
+        root = study_root(config)
+        if root is not None:
+            return resolve_path(comparison_cfg["output_folder"], base_dir=root)
+        return resolve_path(comparison_cfg["output_folder"], base_dir=config.get("_config_dir"))
+
     paths = config.get("paths", {})
     folder = paths.get("comparison_output_folder", config["experimental"]["folder"])
+    if "study" in config:
+        return resolve_study_path(config, folder)
     return resolve_path(folder, base_dir=config.get("_config_dir"))
+
+
+def should_run_comparison(config: dict[str, Any], dataset_count: int) -> bool:
+    comparison_cfg = config.get("comparison", {})
+    return feature_enabled(
+        comparison_cfg.get("enabled", "auto"),
+        auto_condition=dataset_count > 1,
+        feature_name="comparison",
+        require_message="comparison.enabled is true, but at least two simulation datasets are required.",
+    )
 
 
 def run_pipeline(config: dict[str, Any], *, make_plots: bool = True) -> dict[str, Path]:
     dataset_metrics = {}
-    for dataset, folder in simulation_folders(config).items():
+    folders = simulation_folders(config)
+    for dataset, folder in folders.items():
         dataset_metrics[dataset] = process_dataset(dataset, folder, config, make_plots=make_plots)
+    if not should_run_comparison(config, len(dataset_metrics)):
+        print("Skipped comparison outputs: fewer than two datasets or comparison.enabled is false.")
+        return {}
     output_folder = comparison_output_folder(config)
     paths = write_cross_dataset_comparisons(dataset_metrics, output_folder, config)
     print(f"Wrote comparison outputs to: {output_folder}")

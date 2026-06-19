@@ -1,19 +1,23 @@
 study_name: crimpability_radial_force
 
-paths:
-  comparison_output_folder: "/Users/carlosaguilar/Library/Mobile Documents/com~apple~CloudDocs/Documents/PhD/Publicaciones/4D PRINTED WOVENS/Artículos/personalized cardio implants/CardioImplants/crimpability"
+study:
+  name: crimpability_radial_force
+  folder: studies/crimpability_radial_force
 
 experimental:
-  folder: "/Users/carlosaguilar/Library/Mobile Documents/com~apple~CloudDocs/Documents/PhD/Publicaciones/4D PRINTED WOVENS/Artículos/personalized cardio implants/CardioImplants/crimpability"
+  folder: experimental
   pattern: "{case}.txt"
   columns:
     x: diameter
     y: force
 
 simulation:
-  folders:
-    sim_raw_data_revision: "/Users/carlosaguilar/Library/Mobile Documents/com~apple~CloudDocs/Documents/PhD/Publicaciones/4D PRINTED WOVENS/Artículos/personalized cardio implants/CardioImplants/crimpability/sim_raw_data_revision"
-    sim_raw_data2: "/Users/carlosaguilar/Library/Mobile Documents/com~apple~CloudDocs/Documents/PhD/Publicaciones/4D PRINTED WOVENS/Artículos/personalized cardio implants/CardioImplants/crimpability/sim_raw_data2"
+  folder: simulations
+  datasets:
+    sim_raw_data_revision:
+      folder: sim_raw_data_revision
+    sim_raw_data2:
+      folder: sim_raw_data2
   filename_regex: "^sim-(W\\d+)-(AP|CEEP)-Node(\\d+)\\.xlsx$"
   displacement_column: disp
   force_columns:
@@ -65,6 +69,7 @@ selection:
 
 comparison:
   enabled: auto
+  output_folder: comparison
 
 selected_plot:
   enabled: auto
@@ -74,7 +79,7 @@ selected_plot:
   branches:
     - loading
     - unloading
-  output_folder: analysis/selected_plots
+  output_folder: selected_plots
   figure:
     figsize: [10, 6]
     linewidth: 3

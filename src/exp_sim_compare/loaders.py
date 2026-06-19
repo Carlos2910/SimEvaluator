@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .config import resolve_path
+from .config import resolve_path, resolve_study_path
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,24 @@ class SimCase:
 
 
 def simulation_folders(config: dict[str, Any]) -> dict[str, Path]:
-    folders = config["simulation"]["folders"]
+    sim_cfg = config["simulation"]
+    if "datasets" in sim_cfg:
+        root = resolve_study_path(config, sim_cfg.get("folder", "simulations"))
+        datasets = sim_cfg["datasets"]
+        if isinstance(datasets, list):
+            return {name: (root / name).resolve() for name in datasets}
+        if isinstance(datasets, dict):
+            out = {}
+            for name, dataset_cfg in datasets.items():
+                if isinstance(dataset_cfg, dict):
+                    folder = dataset_cfg.get("folder", name)
+                else:
+                    folder = dataset_cfg
+                out[name] = resolve_path(folder, base_dir=root)
+            return out
+        raise ValueError("simulation.datasets must be a mapping or list")
+
+    folders = sim_cfg["folders"]
     base_dir = config.get("_config_dir")
     if isinstance(folders, dict):
         return {name: resolve_path(path, base_dir=base_dir) for name, path in folders.items()}
@@ -64,7 +81,7 @@ def list_sim_cases(config: dict[str, Any], dataset: str, folder: Path) -> list[S
 
 def read_experimental(config: dict[str, Any], case_key: str) -> pd.DataFrame:
     exp_cfg = config["experimental"]
-    folder = resolve_path(exp_cfg["folder"], base_dir=config.get("_config_dir"))
+    folder = resolve_study_path(config, exp_cfg["folder"])
     pattern = exp_cfg.get("pattern", "{case}.txt")
     path = folder / pattern.format(case=case_key)
     if not path.exists():

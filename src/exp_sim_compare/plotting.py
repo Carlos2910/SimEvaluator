@@ -26,8 +26,9 @@ import pandas as pd  # noqa: E402
 
 from .branches import split_loading_unloading
 from .channels import comparison_channel
+from .config import feature_enabled, resolve_path, study_root
 from .interpolation import build_interpolated_curve
-from .loaders import read_experimental
+from .loaders import read_experimental, simulation_folders
 
 
 def plot_diagnostics(case, exp: pd.DataFrame, sim: pd.DataFrame, output_dir: Path, config: dict[str, Any]) -> Path:
@@ -137,13 +138,21 @@ def plot_diagnostics(case, exp: pd.DataFrame, sim: pd.DataFrame, output_dir: Pat
 
 def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) -> list[Path]:
     plot_cfg = config.get("selected_plot", {})
-    if not plot_cfg.get("enabled", True):
+    source_value = plot_cfg.get("source", "selected_best_simulations_total_force.csv")
+    source = resolve_path(source_value, base_dir=comparison_output_folder)
+    should_plot = feature_enabled(
+        plot_cfg.get("enabled", "auto"),
+        auto_condition=source.exists(),
+        feature_name="selected_plot",
+        require_message=f"selected_plot.enabled is true, but selected cases file is missing: {source}",
+    )
+    if not should_plot:
+        print("Skipped selected plots: selected cases file is missing or selected_plot.enabled is false.")
         return []
 
-    configure_matplotlib(comparison_output_folder)
-    source = comparison_output_folder / plot_cfg.get("source", "selected_best_simulations_total_force.csv")
     if not source.exists():
         raise FileNotFoundError(f"Selected plot source not found: {source}")
+    configure_matplotlib(comparison_output_folder)
     selected = pd.read_csv(source)
 
     fig_cfg = plot_cfg.get("figure", {})
@@ -151,8 +160,10 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
     linewidth = float(fig_cfg.get("linewidth", 3))
     colors = fig_cfg.get("colors", {})
     channel = plot_cfg.get("channel", config.get("selection", {}).get("channel", "total_force"))
-    output = comparison_output_folder / plot_cfg.get("output_folder", "selected_plots")
+    output_base = study_root(config) or comparison_output_folder
+    output = resolve_path(plot_cfg.get("output_folder", "selected_plots"), base_dir=output_base)
     output.mkdir(parents=True, exist_ok=True)
+    sim_folders = simulation_folders(config)
 
     grouped = {
         "WY-AP": selected[selected["case"].str.endswith("-AP")],
@@ -177,7 +188,7 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
                 label=f"{case_key} experimental",
             )
 
-            curve_dir = Path(config["simulation"]["folders"][row["dataset"]]) / "analysis" / "interpolated_curves"
+            curve_dir = sim_folders[row["dataset"]] / "analysis" / "interpolated_curves"
             for branch in plot_cfg.get("branches", ["loading", "unloading"]):
                 curve_path = curve_dir / f"{case_key}_{row['node']}_{channel}_{branch}.csv"
                 if not curve_path.exists():

@@ -26,11 +26,19 @@ python3 -m pip install -e ".[dev]"
 
 ## Run Crimpability Analysis
 
+With the existing absolute-path config:
+
 ```bash
 exp-sim-compare run configs/crimpability_radial_force.yaml
 ```
 
-Outputs are written to each simulation folder's `analysis/` directory and to the configured comparison output folder.
+With the repo-local study skeleton, after you move the data into `studies/crimpability_radial_force/`:
+
+```bash
+exp-sim-compare run configs/crimpability_radial_force_local.yaml
+```
+
+Each simulation dataset is its own analysis unit, so outputs are written next to the simulation files that produced them.
 
 ## Plot Selected Simulations
 
@@ -38,27 +46,96 @@ Outputs are written to each simulation folder's `analysis/` directory and to the
 exp-sim-compare plot-selected configs/crimpability_radial_force.yaml
 ```
 
-This uses `selected_best_simulations_total_force.csv` by default and writes grouped figures to `analysis/selected_plots/`.
+This uses `selected_best_simulations_total_force.csv` by default. With a study-local config, grouped figures are written to `studies/<study_name>/selected_plots/`.
 
-## Main Outputs
+## Study Structure
+
+The recommended structure is:
 
 ```text
-analysis/
-  metrics_by_file.csv
-  detected_outliers.csv
-  interpolated_curves/
-  figures/
-  selection_summary_total_force.csv
-
-comparison output folder/
-  simulation_dataset_comparison_by_channel.csv
-  simulation_dataset_best_by_channel.csv
-  simulation_dataset_comparison_by_channel_branch.csv
-  simulation_dataset_best_by_channel_branch.csv
-  selected_best_simulations_total_force.csv
-  selected_best_simulations_total_force_by_branch.csv
-  sim_results_comparison_total_force.csv
+studies/
+  crimpability_radial_force/
+    experimental/
+      W6-AP.txt
+      W6-CEEP.txt
+      ...
+    simulations/
+      sim_raw_data_revision/
+        sim-W6-AP-Node1.xlsx
+        ...
+        analysis/
+          metrics_by_file.csv
+          detected_outliers.csv
+          selection_summary_total_force.csv
+          interpolated_curves/
+          figures/
+      sim_raw_data2/
+        sim-W6-AP-Node1.xlsx
+        ...
+        analysis/
+          metrics_by_file.csv
+          detected_outliers.csv
+          selection_summary_total_force.csv
+          interpolated_curves/
+          figures/
+    comparison/
+      simulation_dataset_comparison_by_channel.csv
+      simulation_dataset_best_by_channel.csv
+      simulation_dataset_comparison_by_channel_branch.csv
+      simulation_dataset_best_by_channel_branch.csv
+      simulation_dataset_comparison_total_force.csv
+      selected_best_simulations_total_force.csv
+      selected_best_simulations_total_force_by_branch.csv
+      sim_results_comparison_total_force.csv
+    selected_plots/
+      WY-AP_total_force_selected.png
+      WY-CEEP_total_force_selected.png
 ```
+
+Future studies follow the same pattern:
+
+```text
+studies/
+  axial_compression/
+    experimental/
+    simulations/
+      sim_model_1/
+        analysis/
+      sim_model_2/
+        analysis/
+    comparison/
+    selected_plots/
+```
+
+## Analysis vs Comparison
+
+Per-dataset analysis always runs for each simulation dataset:
+
+```text
+studies/<study>/simulations/<dataset>/analysis/
+```
+
+Cross-dataset comparison is a multi-dataset feature. It runs only when configured and meaningful:
+
+```yaml
+comparison:
+  enabled: auto   # auto, true, false
+```
+
+- `auto`: run comparison only if at least two simulation datasets exist.
+- `true`: require at least two simulation datasets, otherwise raise an error.
+- `false`: skip comparison.
+
+Selected plots behave similarly:
+
+```yaml
+selected_plot:
+  enabled: auto   # auto, true, false
+```
+
+- `auto`: plot only if the selected-cases CSV exists.
+- `true`: require the selected-cases CSV.
+- `false`: skip selected plots.
 
 ## Metric Variant Used For Selection
 
