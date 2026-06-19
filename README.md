@@ -35,7 +35,7 @@ exp-sim-compare run configs/crimpability_radial_force.yaml
 With the repo-local study skeleton, after you move the data into `studies/crimpability_radial_force/datasets/`:
 
 ```bash
-exp-sim-compare run configs/crimpability_radial_force_local.yaml
+exp-sim-compare run studies/crimpability_radial_force/config.yaml
 ```
 
 Each simulation dataset is its own analysis unit, so outputs are written next to the simulation files that produced them.
@@ -55,6 +55,7 @@ The recommended structure is:
 ```text
 studies/
   crimpability_radial_force/
+    config.yaml
     datasets/
       experimental/
         W6-AP.txt
@@ -70,6 +71,7 @@ studies/
             selection_summary_total_force.csv
             interpolated_curves/
             figures/
+            interpolated_figures/
         sim_raw_data2/
           sim-W6-AP-Node1.xlsx
           ...
@@ -79,6 +81,7 @@ studies/
             selection_summary_total_force.csv
             interpolated_curves/
             figures/
+            interpolated_figures/
     comparison/
       simulation_dataset_comparison_by_channel.csv
       simulation_dataset_best_by_channel.csv
@@ -98,13 +101,18 @@ Future studies follow the same pattern:
 ```text
 studies/
   axial_compression/
+    config.yaml
     datasets/
       experimental/
       simulations/
         sim_model_1/
           analysis/
+            figures/
+            interpolated_figures/
         sim_model_2/
           analysis/
+            figures/
+            interpolated_figures/
     comparison/
     selected_plots/
 ```
@@ -115,6 +123,13 @@ Per-dataset analysis always runs for each simulation dataset:
 
 ```text
 studies/<study>/datasets/simulations/<dataset>/analysis/
+```
+
+The per-dataset diagnostics are split into two figure sets:
+
+```text
+studies/<study>/datasets/simulations/<dataset>/analysis/figures/
+studies/<study>/datasets/simulations/<dataset>/analysis/interpolated_figures/
 ```
 
 Cross-dataset comparison is a multi-dataset feature. It runs only when configured and meaningful:
@@ -148,6 +163,8 @@ outliers_excluded_interpolated
 ```
 
 This means metrics are calculated from the exact exported paired curves after simulation outliers are excluded and the cleaned simulation is interpolated onto the experimental diameter grid.
+
+Before interpolation, the cleaned simulation branch is median-filtered along the diameter axis so narrow force spikes do not dominate the paired comparison.
 
 ## Tests
 

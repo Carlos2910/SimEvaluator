@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -25,6 +26,12 @@ CURVE_COLUMNS = [
 ]
 
 
+def interpolation_filter_window(config: dict[str, Any]) -> int:
+    interpolation_cfg = config.get("interpolation", {})
+    window = interpolation_cfg.get("filter_window", interpolation_cfg.get("window", 7))
+    return int(window)
+
+
 def prepare_interp_source(sim_branch: pd.DataFrame, channel: str) -> pd.DataFrame:
     return (
         sim_branch.loc[:, ["diameter", channel]]
@@ -35,17 +42,54 @@ def prepare_interp_source(sim_branch: pd.DataFrame, channel: str) -> pd.DataFram
     )
 
 
-def interp_channel_at(x: np.ndarray, sim_branch: pd.DataFrame, channel: str) -> np.ndarray:
+def _median_smooth(values: np.ndarray, window: int) -> np.ndarray:
+    series = pd.Series(np.asarray(values, dtype=float))
+    if len(series) < 3 or window <= 1:
+        return series.to_numpy(dtype=float)
+
+    if window % 2 == 0:
+        window += 1
+    window = min(window, len(series) if len(series) % 2 == 1 else len(series) - 1)
+    window = max(window, 3)
+
+    return (
+        series.rolling(window=window, center=True, min_periods=max(3, window // 3))
+        .median()
+        .bfill()
+        .ffill()
+        .to_numpy(dtype=float)
+    )
+
+
+def prepare_filtered_interp_source(
+    sim_branch: pd.DataFrame,
+    channel: str,
+    *,
+    filter_window: int,
+) -> pd.DataFrame:
     source = prepare_interp_source(sim_branch, channel)
+    if source.empty:
+        source["filtered"] = pd.Series(dtype=float)
+        return source
+    source["filtered"] = _median_smooth(source[channel].to_numpy(dtype=float), filter_window)
+    return source
+
+
+def interp_values_at(x: np.ndarray, source: pd.DataFrame, value_column: str) -> np.ndarray:
     if len(source) < 2:
         return np.full(len(x), np.nan)
     return np.interp(
         x,
         source["diameter"].to_numpy(dtype=float),
-        source[channel].to_numpy(dtype=float),
+        source[value_column].to_numpy(dtype=float),
         left=np.nan,
         right=np.nan,
     )
+
+
+def interp_channel_at(x: np.ndarray, sim_branch: pd.DataFrame, channel: str) -> np.ndarray:
+    source = prepare_interp_source(sim_branch, channel)
+    return interp_values_at(x, source, channel)
 
 
 def interp_sim_to_test(
@@ -84,6 +128,8 @@ def build_interpolated_curve(
     clean_sim_branch: pd.DataFrame,
     channel: str,
     branch: str,
+    *,
+    filter_window: int = 7,
 ) -> pd.DataFrame:
     if len(exp_branch) < 5 or len(clean_sim_branch) < 5:
         return pd.DataFrame(columns=CURVE_COLUMNS)
@@ -105,8 +151,14 @@ def build_interpolated_curve(
 
     x = exp_overlap["diameter"].to_numpy(dtype=float)
     y_exp = exp_overlap["force"].to_numpy(dtype=float)
-    y_raw = interp_channel_at(x, raw_overlap, channel)
-    y_clean = interp_channel_at(x, clean_overlap, channel)
+    raw_source = prepare_interp_source(raw_overlap, channel)
+    clean_source = prepare_filtered_interp_source(
+        clean_overlap,
+        channel,
+        filter_window=filter_window,
+    )
+    y_raw = interp_values_at(x, raw_source, channel)
+    y_clean = interp_values_at(x, clean_source, "filtered")
     valid = ~np.isnan(y_clean)
 
     out = pd.DataFrame(

@@ -12,6 +12,7 @@ from .channels import add_derived_channels, channel_names, comparison_channel
 from .config import feature_enabled, resolve_path, resolve_study_path, study_root
 from .interpolation import (
     build_interpolated_curve,
+    interpolation_filter_window,
     interp_sim_to_test,
     interpolated_curve_path,
 )
@@ -27,6 +28,7 @@ def analysis_dirs(sim_folder: Path) -> dict[str, Path]:
     return {
         "analysis": analysis,
         "figures": analysis / "figures",
+        "interpolated_figures": analysis / "interpolated_figures",
         "interpolated_curves": analysis / "interpolated_curves",
     }
 
@@ -88,6 +90,7 @@ def compute_case_metrics(
     rows: list[dict[str, object]] = []
     exp_branches = split_loading_unloading(exp)
     channels = channel_names(config)
+    filter_window = interpolation_filter_window(config)
 
     for channel in channels:
         sim_channel = sim.copy()
@@ -140,6 +143,7 @@ def compute_case_metrics(
                 clean_branches[branch],
                 channel,
                 branch,
+                filter_window=filter_window,
             )
             paired_path = interpolated_curve_path(curve_dir, case, channel, branch)
             paired.to_csv(paired_path, index=False)
@@ -213,6 +217,7 @@ def process_dataset(
     all_metrics: list[dict[str, object]] = []
     outlier_frames: list[pd.DataFrame] = []
     figure_paths = []
+    interpolated_figure_paths = []
 
     for case in cases:
         exp = read_experimental(config, case.case_key)
@@ -230,8 +235,18 @@ def process_dataset(
         outlier_frames.append(outlier_rows(case, sim, channels))
         if make_plots:
             from .plotting import plot_diagnostics
+            from .plotting import plot_interpolated_diagnostics
 
             figure_paths.append(plot_diagnostics(case, exp, sim, dirs["figures"], config))
+            interpolated_figure_paths.append(
+                plot_interpolated_diagnostics(
+                    case,
+                    exp,
+                    sim,
+                    dirs["interpolated_figures"],
+                    config,
+                )
+            )
 
     metrics_df = pd.DataFrame(all_metrics)
     outliers_df = (
@@ -250,6 +265,9 @@ def process_dataset(
     print(f"Wrote outliers: {dirs['analysis'] / 'detected_outliers.csv'}")
     print(f"Wrote selection summary: {dirs['analysis'] / 'selection_summary_total_force.csv'}")
     print(f"Wrote {len(figure_paths)} figures to: {dirs['figures']}")
+    print(
+        f"Wrote {len(interpolated_figure_paths)} interpolated figures to: {dirs['interpolated_figures']}"
+    )
     return metrics_df
 
 

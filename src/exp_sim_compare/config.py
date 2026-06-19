@@ -6,6 +6,15 @@ from typing import Any
 import yaml
 
 
+def _infer_project_dir(config_path: Path) -> Path:
+    parent = config_path.parent
+    if parent.name == "configs":
+        return parent.parent
+    if parent.parent.name == "studies":
+        return parent.parent.parent
+    return parent
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     config_path = Path(path).expanduser().resolve()
     with config_path.open("r", encoding="utf-8") as fh:
@@ -14,9 +23,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"Config must be a mapping: {config_path}")
     config["_config_path"] = str(config_path)
     config["_config_dir"] = str(config_path.parent)
-    config["_project_dir"] = str(
-        config_path.parent.parent if config_path.parent.name == "configs" else config_path.parent
-    )
+    config["_project_dir"] = str(_infer_project_dir(config_path))
     return config
 
 

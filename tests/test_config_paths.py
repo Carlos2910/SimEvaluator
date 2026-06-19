@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from exp_sim_compare.config import feature_enabled, study_root
+from exp_sim_compare.config import feature_enabled, load_config, study_root
 from exp_sim_compare.loaders import simulation_folders
 from exp_sim_compare.pipeline import comparison_output_folder, should_run_comparison
 
@@ -44,6 +44,40 @@ def test_comparison_output_folder_uses_study_root():
 
         assert comparison_output_folder(config) == (
             tmp_path / "studies" / "demo" / "comparison"
+        ).resolve()
+
+
+def test_load_config_infers_project_root_from_study_folder():
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        study_dir = root / "studies" / "demo"
+        study_dir.mkdir(parents=True)
+        config_path = study_dir / "config.yaml"
+        config_path.write_text(
+            "\n".join(
+                [
+                    "study:",
+                    "  name: demo",
+                    "  folder: studies/demo",
+                    "experimental:",
+                    "  folder: datasets/experimental",
+                    "simulation:",
+                    "  folder: datasets/simulations",
+                    "  datasets:",
+                    "    sim_a:",
+                    "      folder: sim_a",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        config = load_config(config_path)
+        folders = simulation_folders(config)
+
+        assert Path(config["_project_dir"]) == root.resolve()
+        assert study_root(config) == study_dir.resolve()
+        assert folders["sim_a"] == (
+            study_dir / "datasets" / "simulations" / "sim_a"
         ).resolve()
 
 

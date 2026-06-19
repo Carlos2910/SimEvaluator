@@ -51,6 +51,9 @@ outliers:
   sigma: 6.0
   min_relative_prominence: 0.03
 
+interpolation:
+  filter_window: 7
+
 branches:
   split_at: minimum_x
   include_split_point_in_both: true
