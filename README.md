@@ -26,13 +26,7 @@ python3 -m pip install -e ".[dev]"
 
 ## Run Crimpability Analysis
 
-With the existing absolute-path config:
-
-```bash
-exp-sim-compare run configs/crimpability_radial_force.yaml
-```
-
-With the repo-local study skeleton, after you move the data into `studies/crimpability_radial_force/datasets/`:
+After you move the data into `studies/crimpability_radial_force/datasets/`:
 
 ```bash
 exp-sim-compare run studies/crimpability_radial_force/config.yaml
@@ -43,12 +37,14 @@ Each simulation dataset is its own analysis unit, so outputs are written next to
 ## Plot Selected Simulations
 
 ```bash
-exp-sim-compare plot-selected configs/crimpability_radial_force.yaml
+exp-sim-compare plot-selected studies/crimpability_radial_force/config.yaml
 ```
 
 This uses `selected_best_simulations_total_force.csv` by default. With a study-local config, grouped figures are written to `studies/<study_name>/selected_plots/`.
 
 ## Study Structure
+
+The `configs/` folder is only for reusable templates. Active study configs live inside each study folder as `config.yaml`.
 
 The recommended structure is:
 
