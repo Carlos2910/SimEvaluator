@@ -5,14 +5,14 @@ study:
   folder: studies/crimpability_radial_force
 
 experimental:
-  folder: experimental
+  folder: datasets/experimental
   pattern: "{case}.txt"
   columns:
     x: diameter
     y: force
 
 simulation:
-  folder: simulations
+  folder: datasets/simulations
   datasets:
     sim_raw_data_revision:
       folder: sim_raw_data_revision

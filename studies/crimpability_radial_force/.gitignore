@@ -1,0 +1,11 @@
+# Raw study inputs
+datasets/**/*.txt
+datasets/**/*.xlsx
+datasets/**/.DS_Store
+
+# Generated outputs
+datasets/**/analysis/
+comparison/*
+!comparison/.gitkeep
+selected_plots/*
+!selected_plots/.gitkeep

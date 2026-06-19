@@ -32,7 +32,7 @@ With the existing absolute-path config:
 exp-sim-compare run configs/crimpability_radial_force.yaml
 ```
 
-With the repo-local study skeleton, after you move the data into `studies/crimpability_radial_force/`:
+With the repo-local study skeleton, after you move the data into `studies/crimpability_radial_force/datasets/`:
 
 ```bash
 exp-sim-compare run configs/crimpability_radial_force_local.yaml
@@ -55,29 +55,30 @@ The recommended structure is:
 ```text
 studies/
   crimpability_radial_force/
-    experimental/
-      W6-AP.txt
-      W6-CEEP.txt
-      ...
-    simulations/
-      sim_raw_data_revision/
-        sim-W6-AP-Node1.xlsx
+    datasets/
+      experimental/
+        W6-AP.txt
+        W6-CEEP.txt
         ...
-        analysis/
-          metrics_by_file.csv
-          detected_outliers.csv
-          selection_summary_total_force.csv
-          interpolated_curves/
-          figures/
-      sim_raw_data2/
-        sim-W6-AP-Node1.xlsx
-        ...
-        analysis/
-          metrics_by_file.csv
-          detected_outliers.csv
-          selection_summary_total_force.csv
-          interpolated_curves/
-          figures/
+      simulations/
+        sim_raw_data_revision/
+          sim-W6-AP-Node1.xlsx
+          ...
+          analysis/
+            metrics_by_file.csv
+            detected_outliers.csv
+            selection_summary_total_force.csv
+            interpolated_curves/
+            figures/
+        sim_raw_data2/
+          sim-W6-AP-Node1.xlsx
+          ...
+          analysis/
+            metrics_by_file.csv
+            detected_outliers.csv
+            selection_summary_total_force.csv
+            interpolated_curves/
+            figures/
     comparison/
       simulation_dataset_comparison_by_channel.csv
       simulation_dataset_best_by_channel.csv
@@ -97,12 +98,13 @@ Future studies follow the same pattern:
 ```text
 studies/
   axial_compression/
-    experimental/
-    simulations/
-      sim_model_1/
-        analysis/
-      sim_model_2/
-        analysis/
+    datasets/
+      experimental/
+      simulations/
+        sim_model_1/
+          analysis/
+        sim_model_2/
+          analysis/
     comparison/
     selected_plots/
 ```
@@ -112,7 +114,7 @@ studies/
 Per-dataset analysis always runs for each simulation dataset:
 
 ```text
-studies/<study>/simulations/<dataset>/analysis/
+studies/<study>/datasets/simulations/<dataset>/analysis/
 ```
 
 Cross-dataset comparison is a multi-dataset feature. It runs only when configured and meaningful:

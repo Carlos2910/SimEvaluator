@@ -13,7 +13,7 @@ def test_study_relative_simulation_paths_resolve_from_study_root():
             "_project_dir": str(tmp_path),
             "study": {"name": "demo", "folder": "studies/demo"},
             "simulation": {
-                "folder": "simulations",
+                "folder": "datasets/simulations",
                 "datasets": {
                     "sim_a": {"folder": "sim_a"},
                     "sim_b": {"folder": "nested/sim_b"},
@@ -25,10 +25,10 @@ def test_study_relative_simulation_paths_resolve_from_study_root():
 
         assert study_root(config) == (tmp_path / "studies" / "demo").resolve()
         assert folders["sim_a"] == (
-            tmp_path / "studies" / "demo" / "simulations" / "sim_a"
+            tmp_path / "studies" / "demo" / "datasets" / "simulations" / "sim_a"
         ).resolve()
         assert folders["sim_b"] == (
-            tmp_path / "studies" / "demo" / "simulations" / "nested" / "sim_b"
+            tmp_path / "studies" / "demo" / "datasets" / "simulations" / "nested" / "sim_b"
         ).resolve()
 
 
@@ -38,7 +38,7 @@ def test_comparison_output_folder_uses_study_root():
         config = {
             "_project_dir": str(tmp_path),
             "study": {"name": "demo", "folder": "studies/demo"},
-            "experimental": {"folder": "experimental"},
+            "experimental": {"folder": "datasets/experimental"},
             "comparison": {"output_folder": "comparison"},
         }
 

@@ -25,7 +25,7 @@ class SimCase:
 def simulation_folders(config: dict[str, Any]) -> dict[str, Path]:
     sim_cfg = config["simulation"]
     if "datasets" in sim_cfg:
-        root = resolve_study_path(config, sim_cfg.get("folder", "simulations"))
+        root = resolve_study_path(config, sim_cfg.get("folder", "datasets/simulations"))
         datasets = sim_cfg["datasets"]
         if isinstance(datasets, list):
             return {name: (root / name).resolve() for name in datasets}
