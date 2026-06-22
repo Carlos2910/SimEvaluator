@@ -8,7 +8,7 @@ import pandas as pd
 
 def make_selection_summary(metrics_df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
     selection_cfg = config.get("selection", {})
-    metric_variant = selection_cfg.get("metric_variant", "outliers_excluded_interpolated")
+    metric_variant = selection_cfg.get("metric_variant", "outliers_excluded")
     channel = selection_cfg.get("channel", "total_force")
     rank_by = selection_cfg.get("rank_by", ["RMSE", "sMAPE", "NRMSE_percent"])
     total = metrics_df[
@@ -49,7 +49,7 @@ def write_cross_dataset_comparisons(
 ) -> dict[str, Path]:
     output_folder.mkdir(parents=True, exist_ok=True)
     selection_cfg = config.get("selection", {})
-    metric_variant = selection_cfg.get("metric_variant", "outliers_excluded_interpolated")
+    metric_variant = selection_cfg.get("metric_variant", "outliers_excluded")
     selection_channel = selection_cfg.get("channel", "total_force")
     rank_by = selection_cfg.get("rank_by", ["RMSE", "sMAPE", "NRMSE_percent"])
     metric_rank_cols = list(dict.fromkeys([*rank_by, "NRMSE_peak"]))
@@ -139,7 +139,7 @@ def write_branch_comparisons(
     config: dict[str, Any],
 ) -> dict[str, Path]:
     selection_cfg = config.get("selection", {})
-    metric_variant = selection_cfg.get("metric_variant", "outliers_excluded_interpolated")
+    metric_variant = selection_cfg.get("metric_variant", "outliers_excluded")
     selection_channel = selection_cfg.get("channel", "total_force")
     rank_by = selection_cfg.get("rank_by", ["RMSE", "sMAPE", "NRMSE_percent"])
     metric_rank_cols = list(dict.fromkeys([*rank_by, "NRMSE_peak"]))
@@ -229,16 +229,14 @@ def write_branch_comparisons(
 
 def write_total_force_summary(comparison: pd.DataFrame, output_folder: Path, channel: str) -> Path:
     total = comparison[comparison["channel"] == channel].copy()
+    # Discover all dataset names present in this comparison so the summary
+    # is generic across any study — no hardcoded dataset names.
+    datasets = list(total["dataset"].unique())
+    sort_cols = ["rank_sum", "RMSE", "sMAPE", "NRMSE_percent"]
     rows = []
     for case, group in total.groupby("case", sort=True):
-        revision = group[group["dataset"] == "sim_raw_data_revision"].sort_values(
-            ["rank_sum", "RMSE", "sMAPE", "NRMSE_percent"]
-        )
-        data2 = group[group["dataset"] == "sim_raw_data2"].sort_values(
-            ["rank_sum", "RMSE", "sMAPE", "NRMSE_percent"]
-        )
-        overall = group.sort_values(["rank_sum", "RMSE", "sMAPE", "NRMSE_percent"]).iloc[0]
-        row = {
+        overall = group.sort_values(sort_cols).iloc[0]
+        row: dict[str, object] = {
             "case": case,
             "metric_variant": overall["metric_variant"],
             "overall_best_dataset": overall["dataset"],
@@ -249,28 +247,19 @@ def write_total_force_summary(comparison: pd.DataFrame, output_folder: Path, cha
             "overall_best_NRMSE_peak": overall["NRMSE_peak"],
             "overall_rank_sum": overall["rank_sum"],
         }
-        if not revision.empty:
-            r = revision.iloc[0]
+        for dataset in datasets:
+            subset = group[group["dataset"] == dataset].sort_values(sort_cols)
+            if subset.empty:
+                continue
+            r = subset.iloc[0]
             row.update(
                 {
-                    "revision_best_node": r["node"],
-                    "revision_RMSE": r["RMSE"],
-                    "revision_sMAPE": r["sMAPE"],
-                    "revision_NRMSE_percent": r["NRMSE_percent"],
-                    "revision_NRMSE_peak": r["NRMSE_peak"],
-                    "revision_rank_sum": r["rank_sum"],
-                }
-            )
-        if not data2.empty:
-            d = data2.iloc[0]
-            row.update(
-                {
-                    "data2_best_node": d["node"],
-                    "data2_RMSE": d["RMSE"],
-                    "data2_sMAPE": d["sMAPE"],
-                    "data2_NRMSE_percent": d["NRMSE_percent"],
-                    "data2_NRMSE_peak": d["NRMSE_peak"],
-                    "data2_rank_sum": d["rank_sum"],
+                    f"{dataset}_best_node": r["node"],
+                    f"{dataset}_RMSE": r["RMSE"],
+                    f"{dataset}_sMAPE": r["sMAPE"],
+                    f"{dataset}_NRMSE_percent": r["NRMSE_percent"],
+                    f"{dataset}_NRMSE_peak": r["NRMSE_peak"],
+                    f"{dataset}_rank_sum": r["rank_sum"],
                 }
             )
         rows.append(row)

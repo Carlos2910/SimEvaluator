@@ -26,6 +26,14 @@ CURVE_COLUMNS = [
 ]
 
 
+def metrics_comparison_grid(config: dict[str, Any]) -> str:
+    metrics_cfg = config.get("metrics", {})
+    grid = metrics_cfg.get("comparison_grid", "auto")
+    if grid not in {"auto", "experimental", "simulation_native"}:
+        raise ValueError("metrics.comparison_grid must be auto, experimental, or simulation_native")
+    return grid
+
+
 def interpolation_filter_window(config: dict[str, Any]) -> int:
     interpolation_cfg = config.get("interpolation", {})
     window = interpolation_cfg.get("filter_window", interpolation_cfg.get("window", 7))
@@ -42,7 +50,7 @@ def prepare_interp_source(sim_branch: pd.DataFrame, channel: str) -> pd.DataFram
     )
 
 
-def _median_smooth(values: np.ndarray, window: int) -> np.ndarray:
+def median_smooth(values: np.ndarray, window: int) -> np.ndarray:
     series = pd.Series(np.asarray(values, dtype=float))
     if len(series) < 3 or window <= 1:
         return series.to_numpy(dtype=float)
@@ -71,7 +79,7 @@ def prepare_filtered_interp_source(
     if source.empty:
         source["filtered"] = pd.Series(dtype=float)
         return source
-    source["filtered"] = _median_smooth(source[channel].to_numpy(dtype=float), filter_window)
+    source["filtered"] = median_smooth(source[channel].to_numpy(dtype=float), filter_window)
     return source
 
 
@@ -85,6 +93,17 @@ def interp_values_at(x: np.ndarray, source: pd.DataFrame, value_column: str) -> 
         left=np.nan,
         right=np.nan,
     )
+
+
+def interp_experimental_at(x: np.ndarray, exp_branch: pd.DataFrame) -> np.ndarray:
+    source = (
+        exp_branch.loc[:, ["diameter", "force"]]
+        .dropna()
+        .sort_values("diameter")
+        .groupby("diameter", as_index=False)["force"]
+        .mean()
+    )
+    return interp_values_at(x, source.rename(columns={"force": "_force"}), "_force")
 
 
 def interp_channel_at(x: np.ndarray, sim_branch: pd.DataFrame, channel: str) -> np.ndarray:
@@ -115,6 +134,58 @@ def interp_sim_to_test(
     y_sim = interp_channel_at(x, sim_overlap, channel)
     valid = ~np.isnan(y_sim)
     return x[valid], y_exp[valid], y_sim[valid]
+
+
+def interp_test_to_sim(
+    exp_branch: pd.DataFrame,
+    sim_branch: pd.DataFrame,
+    channel: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    sim_source = prepare_interp_source(sim_branch, channel)
+    if len(exp_branch) < 5 or len(sim_source) < 5:
+        return np.array([]), np.array([]), np.array([])
+
+    xmin = max(exp_branch["diameter"].min(), sim_source["diameter"].min())
+    xmax = min(exp_branch["diameter"].max(), sim_source["diameter"].max())
+    sim_overlap = sim_source[
+        (sim_source["diameter"] >= xmin) & (sim_source["diameter"] <= xmax)
+    ].copy()
+
+    if len(sim_overlap) < 5:
+        return np.array([]), np.array([]), np.array([])
+
+    x = sim_overlap["diameter"].to_numpy(dtype=float)
+    y_exp = interp_experimental_at(x, exp_branch)
+    y_sim = sim_overlap[channel].to_numpy(dtype=float)
+    valid = ~(np.isnan(y_exp) | np.isnan(y_sim))
+    return x[valid], y_exp[valid], y_sim[valid]
+
+
+def choose_metric_grid(
+    exp_branch: pd.DataFrame,
+    sim_branch: pd.DataFrame,
+    channel: str,
+    config: dict[str, Any],
+) -> str:
+    grid = metrics_comparison_grid(config)
+    if grid != "auto":
+        return grid
+    sim_source = prepare_interp_source(sim_branch, channel)
+    return "simulation_native" if len(sim_source) < len(exp_branch) else "experimental"
+
+
+def pair_for_metric_grid(
+    exp_branch: pd.DataFrame,
+    sim_branch: pd.DataFrame,
+    channel: str,
+    config: dict[str, Any],
+) -> tuple[str, np.ndarray, np.ndarray, np.ndarray]:
+    grid = choose_metric_grid(exp_branch, sim_branch, channel, config)
+    if grid == "simulation_native":
+        x, y_exp, y_sim = interp_test_to_sim(exp_branch, sim_branch, channel)
+    else:
+        x, y_exp, y_sim = interp_sim_to_test(exp_branch, sim_branch, channel)
+    return grid, x, y_exp, y_sim
 
 
 def interpolated_curve_path(curve_dir: Path, case: SimCase, channel: str, branch: str) -> Path:

@@ -24,11 +24,13 @@ def configure_matplotlib(output_dir: Path) -> None:
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from .alignment import align_simulation_diameter
 from .branches import split_loading_unloading
-from .channels import comparison_channel
+from .channels import add_derived_channels, channel_names, comparison_channel
 from .config import feature_enabled, resolve_path, study_root
-from .interpolation import build_interpolated_curve, interpolation_filter_window
-from .loaders import read_experimental, simulation_folders
+from .interpolation import build_interpolated_curve, interpolation_filter_window, median_smooth
+from .loaders import parse_simulation_path, read_experimental, read_simulation, simulation_folders
+from .outliers import add_outlier_masks
 
 
 def load_selected_simulation_curve(
@@ -49,6 +51,85 @@ def load_selected_simulation_curve(
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
+
+
+def concat_branches(branch_frames: dict[str, pd.DataFrame], branches: list[str]) -> pd.DataFrame:
+    frames = [branch_frames[branch] for branch in branches if branch in branch_frames and not branch_frames[branch].empty]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def selected_native_simulation_curves(
+    dataset: str,
+    folder: Path,
+    file_name: str,
+    case_key: str,
+    node: str,
+    channel: str,
+    branches: list[str],
+    config: dict[str, Any],
+) -> dict[str, pd.DataFrame]:
+    sim_path = folder / file_name
+    case = parse_simulation_path(dataset, folder, sim_path, config["simulation"]["filename_regex"])
+    if case is None:
+        return {}
+
+    exp = read_experimental(config, case_key)
+    sim = read_simulation(case, config)
+    sim = align_simulation_diameter(sim, exp, case, config)
+    sim = add_derived_channels(sim, config)
+    channels = channel_names(config)
+    outlier_cfg = config.get("outliers", {})
+    channel_values = {name: comparison_channel(sim, name, config) for name in channels}
+    sim = add_outlier_masks(
+        sim,
+        channels,
+        window=int(outlier_cfg.get("window", 41)),
+        window_diameter_span=(
+            float(outlier_cfg["window_diameter_span"])
+            if outlier_cfg.get("window_diameter_span") is not None
+            else None
+        ),
+        min_window_points=int(outlier_cfg.get("min_window_points", 21)),
+        sigma=float(outlier_cfg.get("sigma", 6.0)),
+        min_relative_prominence=float(outlier_cfg.get("min_relative_prominence", 0.03)),
+        exclusion_threshold_ratio=float(outlier_cfg.get("exclusion_threshold_ratio", 3.0)),
+        split_by_branch=bool(outlier_cfg.get("split_by_branch", True)),
+        channel_values=channel_values,
+    )
+    sim[channel] = comparison_channel(sim, channel, config)
+
+    filter_window = interpolation_filter_window(config)
+    raw_branches = {}
+    cleaned_branches = {}
+    smoothed_branches = {}
+    for branch, branch_df in split_loading_unloading(sim).items():
+        raw = branch_df.loc[:, ["diameter", channel]].copy()
+        raw["branch"] = branch
+        raw_branches[branch] = raw
+
+        cleaned = branch_df.loc[~branch_df[f"{channel}_exclude"], ["diameter", channel]].copy()
+        cleaned["branch"] = branch
+        cleaned_branches[branch] = cleaned
+
+        smoothed = cleaned.copy()
+        if not smoothed.empty:
+            smoothed[channel] = median_smooth(smoothed[channel].to_numpy(dtype=float), filter_window)
+        smoothed_branches[branch] = smoothed
+
+    curves = {
+        "raw": concat_branches(raw_branches, branches),
+        "cleaned": concat_branches(cleaned_branches, branches),
+        "smoothed": concat_branches(smoothed_branches, branches),
+    }
+    for kind, curve in curves.items():
+        if not curve.empty:
+            curve["simulation_curve_kind"] = kind
+            curve["case"] = case_key
+            curve["dataset"] = dataset
+            curve["node"] = node
+    return curves
 
 
 def plot_diagnostics(case, exp: pd.DataFrame, sim: pd.DataFrame, output_dir: Path, config: dict[str, Any]) -> Path:
@@ -166,7 +247,7 @@ def plot_interpolated_diagnostics(
         sim_plot[channel] = comparison_channel(sim_plot, channel, config)
         sim_plot_branches = split_loading_unloading(sim_plot)
         clean_branches = {
-            branch: branch_df.loc[~branch_df[f"{channel}_outlier"]].copy()
+            branch: branch_df.loc[~branch_df[f"{channel}_exclude"]].copy()
             for branch, branch_df in sim_plot_branches.items()
         }
 
@@ -240,9 +321,24 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
     linewidth = float(fig_cfg.get("linewidth", 3))
     experimental_linestyle = fig_cfg.get("experimental_linestyle", "-")
     simulation_linestyle = fig_cfg.get("simulation_linestyle", "--")
+    simulation_linestyles = {
+        "raw": ":",
+        "cleaned": "--",
+        "smoothed": "-.",
+        "interpolated": simulation_linestyle,
+        **fig_cfg.get("simulation_linestyles", {}),
+    }
+    simulation_alphas = {
+        "raw": 0.35,
+        "cleaned": 0.75,
+        "smoothed": 0.95,
+        "interpolated": 0.9,
+        **fig_cfg.get("simulation_alphas", {}),
+    }
     colors = fig_cfg.get("colors", {})
     channel = plot_cfg.get("channel", config.get("selection", {}).get("channel", "total_force"))
     branches = plot_cfg.get("branches", ["loading", "unloading"])
+    simulation_data = plot_cfg.get("simulation_data", ["interpolated"])
     split_branches = bool(plot_cfg.get("split_branches", False))
     output_base = study_root(config) or comparison_output_folder
     output = resolve_path(plot_cfg.get("output_folder", "selected_plots"), base_dir=output_base)
@@ -273,39 +369,71 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
             )
 
             curve_dir = sim_folders[row["dataset"]] / "analysis" / "interpolated_curves"
-            if split_branches:
-                for branch in branches:
-                    curve_path = curve_dir / f"{case_key}_{row['node']}_{channel}_{branch}.csv"
-                    if not curve_path.exists():
+            native_curves: dict[str, pd.DataFrame] | None = None
+            for data_kind in simulation_data:
+                if data_kind == "interpolated":
+                    if split_branches:
+                        for branch in branches:
+                            curve_path = curve_dir / f"{case_key}_{row['node']}_{channel}_{branch}.csv"
+                            if not curve_path.exists():
+                                continue
+                            curve = pd.read_csv(curve_path)
+                            ax.plot(
+                                curve["diameter"],
+                                curve["simulation_force_outliers_excluded_interpolated"],
+                                color=color,
+                                linewidth=max(1.2, linewidth * 0.65),
+                                linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
+                                alpha=float(simulation_alphas.get(data_kind, 0.9)),
+                                label=f"{case_key} {row['dataset']} {row['node']} interpolated {branch}",
+                            )
                         continue
-                    curve = pd.read_csv(curve_path)
+                    curve = load_selected_simulation_curve(
+                        curve_dir,
+                        case_key,
+                        row["node"],
+                        channel,
+                        branches,
+                    )
+                    if curve.empty:
+                        continue
                     ax.plot(
                         curve["diameter"],
                         curve["simulation_force_outliers_excluded_interpolated"],
                         color=color,
                         linewidth=max(1.2, linewidth * 0.65),
-                        linestyle=simulation_linestyle,
-                        alpha=0.9,
-                        label=f"{case_key} {row['dataset']} {row['node']} {branch}",
+                        linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
+                        alpha=float(simulation_alphas.get(data_kind, 0.9)),
+                        label=f"{case_key} {row['dataset']} {row['node']} interpolated",
                     )
-            else:
-                curve = load_selected_simulation_curve(
-                    curve_dir,
-                    case_key,
-                    row["node"],
-                    channel,
-                    branches,
-                )
+                    continue
+
+                if data_kind not in {"raw", "cleaned", "smoothed"}:
+                    raise ValueError(
+                        "selected_plot.simulation_data entries must be raw, cleaned, smoothed, or interpolated"
+                    )
+                if native_curves is None:
+                    native_curves = selected_native_simulation_curves(
+                        row["dataset"],
+                        sim_folders[row["dataset"]],
+                        row["file"],
+                        case_key,
+                        row["node"],
+                        channel,
+                        branches,
+                        config,
+                    )
+                curve = native_curves.get(data_kind, pd.DataFrame())
                 if curve.empty:
                     continue
                 ax.plot(
                     curve["diameter"],
-                    curve["simulation_force_outliers_excluded_interpolated"],
+                    curve[channel],
                     color=color,
                     linewidth=max(1.2, linewidth * 0.65),
-                    linestyle=simulation_linestyle,
-                    alpha=0.9,
-                    label=f"{case_key} {row['dataset']} {row['node']}",
+                    linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
+                    alpha=float(simulation_alphas.get(data_kind, 0.9)),
+                    label=f"{case_key} {row['dataset']} {row['node']} {data_kind}",
                 )
 
         ax.set_xlabel("Diameter")

@@ -16,6 +16,8 @@ def outlier_rows(case, sim: pd.DataFrame, channels: tuple[str, ...]) -> pd.DataF
         "disp",
         *channels,
         "outlier_channels",
+        "excluded_channels",
+        "max_outlier_ratio",
     ]
     if rows.empty:
         return pd.DataFrame(columns=columns)
@@ -30,4 +32,10 @@ def outlier_rows(case, sim: pd.DataFrame, channels: tuple[str, ...]) -> pd.DataF
         lambda row: ",".join(channel for channel in channels if row[f"{channel}_outlier"]),
         axis=1,
     )
+    out["excluded_channels"] = out.apply(
+        lambda row: ",".join(channel for channel in channels if row.get(f"{channel}_exclude", False)),
+        axis=1,
+    )
+    ratio_columns = [f"{channel}_outlier_ratio" for channel in channels]
+    out["max_outlier_ratio"] = out[ratio_columns].max(axis=1, skipna=True)
     return out[columns]

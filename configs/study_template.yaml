@@ -46,8 +46,15 @@ alignment:
 outliers:
   method: rolling_hampel
   window: 41
+  window_diameter_span: 0.10
+  min_window_points: 21
   sigma: 6.0
   min_relative_prominence: 0.03
+  exclusion_threshold_ratio: 3.0
+  split_by_branch: true
+
+metrics:
+  comparison_grid: auto
 
 interpolation:
   filter_window: 7
@@ -57,7 +64,7 @@ branches:
   include_split_point_in_both: true
 
 selection:
-  metric_variant: outliers_excluded_interpolated
+  metric_variant: outliers_excluded
   channel: total_force
   rank_by:
     - RMSE
@@ -72,7 +79,9 @@ selected_plot:
   enabled: auto
   source: selected_best_simulations_total_force.csv
   channel: total_force
-  metric_variant: outliers_excluded_interpolated
+  metric_variant: outliers_excluded
+  simulation_data:
+    - smoothed
   split_branches: false
   branches:
     - loading
@@ -83,5 +92,15 @@ selected_plot:
     linewidth: 3
     experimental_linestyle: "-"
     simulation_linestyle: "--"
+    simulation_linestyles:
+      raw: ":"
+      cleaned: "--"
+      smoothed: "-."
+      interpolated: "--"
+    simulation_alphas:
+      raw: 0.35
+      cleaned: 0.75
+      smoothed: 0.95
+      interpolated: 0.90
     dpi: 300
     colors: {}

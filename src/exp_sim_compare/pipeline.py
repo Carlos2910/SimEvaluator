@@ -13,8 +13,8 @@ from .config import feature_enabled, resolve_path, resolve_study_path, study_roo
 from .interpolation import (
     build_interpolated_curve,
     interpolation_filter_window,
-    interp_sim_to_test,
     interpolated_curve_path,
+    pair_for_metric_grid,
 )
 from .loaders import SimCase, list_sim_cases, read_experimental, read_simulation, simulation_folders
 from .metrics import calculate_metrics, empty_metrics
@@ -57,6 +57,9 @@ def metric_row(
     n_sim_total: int,
     n_outliers_channel: int,
     n_outliers_any_channel: int,
+    n_excluded_channel: int,
+    n_excluded_any_channel: int,
+    comparison_grid: str,
     paired_curve_file: str,
     sim: pd.DataFrame,
     row_metrics: dict[str, float],
@@ -74,6 +77,9 @@ def metric_row(
         "n_sim_total": n_sim_total,
         "n_outliers_channel": n_outliers_channel,
         "n_outliers_any_channel": n_outliers_any_channel,
+        "n_excluded_channel": n_excluded_channel,
+        "n_excluded_any_channel": n_excluded_any_channel,
+        "comparison_grid": comparison_grid,
         "paired_curve_file": paired_curve_file,
         **alignment_info(sim),
         **row_metrics,
@@ -96,9 +102,10 @@ def compute_case_metrics(
         sim_channel = sim.copy()
         sim_channel[channel] = comparison_channel(sim_channel, channel, config)
         mask_col = f"{channel}_outlier"
+        exclude_col = f"{channel}_exclude"
         raw_branches = split_loading_unloading(sim_channel)
         clean_branches = {
-            branch: branch_df.loc[~branch_df[mask_col]].copy()
+            branch: branch_df.loc[~branch_df[exclude_col]].copy()
             for branch, branch_df in raw_branches.items()
         }
 
@@ -113,8 +120,8 @@ def compute_case_metrics(
             ("outliers_excluded", clean_branches),
         ):
             for branch in ("loading", "unloading"):
-                x, y_exp, y_sim = interp_sim_to_test(
-                    exp_branches[branch], branch_source[branch], channel
+                comparison_grid, x, y_exp, y_sim = pair_for_metric_grid(
+                    exp_branches[branch], branch_source[branch], channel, config
                 )
                 row_metrics = calculate_metrics(y_exp, y_sim) if len(x) else empty_metrics()
                 if len(x):
@@ -129,6 +136,9 @@ def compute_case_metrics(
                         len(sim),
                         int(sim[mask_col].sum()),
                         int(sim["any_outlier"].sum()),
+                        int(sim[exclude_col].sum()),
+                        int(sim["any_excluded"].sum()),
+                        comparison_grid,
                         "",
                         sim,
                         row_metrics,
@@ -166,6 +176,9 @@ def compute_case_metrics(
                     len(sim),
                     int(sim[mask_col].sum()),
                     int(sim["any_outlier"].sum()),
+                    int(sim[exclude_col].sum()),
+                    int(sim["any_excluded"].sum()),
+                    "experimental_filtered",
                     str(paired_path),
                     sim,
                     row_metrics,
@@ -191,6 +204,9 @@ def compute_case_metrics(
                     len(sim),
                     int(sim[mask_col].sum()),
                     int(sim["any_outlier"].sum()),
+                    int(sim[exclude_col].sum()),
+                    int(sim["any_excluded"].sum()),
+                    "combined",
                     "",
                     sim,
                     combined,
@@ -224,12 +240,22 @@ def process_dataset(
         sim = read_simulation(case, config)
         sim = align_simulation_diameter(sim, exp, case, config)
         sim = add_derived_channels(sim, config)
+        channel_values = {channel: comparison_channel(sim, channel, config) for channel in channels}
         sim = add_outlier_masks(
             sim,
             channels,
             window=int(outlier_cfg.get("window", 41)),
+            window_diameter_span=(
+                float(outlier_cfg["window_diameter_span"])
+                if outlier_cfg.get("window_diameter_span") is not None
+                else None
+            ),
+            min_window_points=int(outlier_cfg.get("min_window_points", 21)),
             sigma=float(outlier_cfg.get("sigma", 6.0)),
             min_relative_prominence=float(outlier_cfg.get("min_relative_prominence", 0.03)),
+            exclusion_threshold_ratio=float(outlier_cfg.get("exclusion_threshold_ratio", 3.0)),
+            split_by_branch=bool(outlier_cfg.get("split_by_branch", True)),
+            channel_values=channel_values,
         )
         all_metrics.extend(compute_case_metrics(case, exp, sim, config, dirs["interpolated_curves"]))
         outlier_frames.append(outlier_rows(case, sim, channels))

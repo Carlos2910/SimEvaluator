@@ -11,7 +11,7 @@ The first configured workflow reproduces the crimpability/radial-force analysis:
 - detect simulation outliers with a rolling-median/Hampel-like detector,
 - split loading and unloading at minimum diameter,
 - include the minimum-diameter point in both branches,
-- interpolate simulation values onto the experimental diameter grid,
+- choose a fair metric grid from the simulation/experimental resolution,
 - export paired comparison curves,
 - calculate metrics and rank candidate simulations,
 - generate diagnostic and selected-case plots.
@@ -42,6 +42,17 @@ exp-sim-compare plot-selected studies/crimpability_radial_force/config.yaml
 
 This uses `selected_best_simulations_total_force.csv` by default. With a study-local config, grouped figures are written to `studies/<study_name>/selected_plots/`.
 Selected plots join loading and unloading into one simulation curve by default; set `selected_plot.split_branches: true` to draw branch segments separately.
+Selected plots can show any combination of native simulation curves:
+
+```yaml
+selected_plot:
+  simulation_data:
+    - raw       # native simulation force
+    - cleaned   # native simulation after excluded spikes are removed
+    - smoothed  # cleaned native simulation with median smoothing for visual readability
+```
+
+Use `interpolated` in the same list when you want to show the processed paired curve used for the exported interpolation audit files.
 
 ## Study Structure
 
@@ -158,12 +169,28 @@ selected_plot:
 The default selection variant is:
 
 ```text
-outliers_excluded_interpolated
+outliers_excluded
 ```
 
-This means metrics are calculated from the exact exported paired curves after simulation outliers are excluded and the cleaned simulation is interpolated onto the experimental diameter grid.
+This uses the cleaned simulation after only strong excluded spikes are removed. The metric grid is controlled by:
 
-Before interpolation, the cleaned simulation branch is median-filtered along the diameter axis so narrow force spikes do not dominate the paired comparison.
+```yaml
+metrics:
+  comparison_grid: auto
+```
+
+With `auto`, sparse simulations are compared on the simulation-native diameter grid by interpolating the experiment to the simulation diameters. Denser simulations are compared on the experimental grid. The exported `outliers_excluded_interpolated` curve is still written for auditability, but it is no longer the required default for selecting the best simulation.
+
+Outlier detection separates review from exclusion:
+
+```yaml
+outliers:
+  window_diameter_span: 0.10
+  min_window_points: 21
+  exclusion_threshold_ratio: 3.0
+```
+
+Points above the Hampel threshold are flagged. The diameter span sets the physical neighborhood, while `min_window_points` prevents sparse files from using a too-small local window. Only stronger points whose residual/threshold ratio is at least `exclusion_threshold_ratio` are removed from cleaned metrics and cleaned plots. Borderline local behavior remains in the data.
 
 ## Tests
 
