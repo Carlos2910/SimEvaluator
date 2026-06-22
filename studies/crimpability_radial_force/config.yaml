@@ -79,6 +79,7 @@ selected_plot:
   source: selected_best_simulations_total_force.csv
   channel: total_force
   metric_variant: outliers_excluded_interpolated
+  split_branches: false
   branches:
     - loading
     - unloading

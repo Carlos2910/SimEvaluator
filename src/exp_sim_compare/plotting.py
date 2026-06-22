@@ -31,6 +31,26 @@ from .interpolation import build_interpolated_curve, interpolation_filter_window
 from .loaders import read_experimental, simulation_folders
 
 
+def load_selected_simulation_curve(
+    curve_dir: Path,
+    case_key: str,
+    node: str,
+    channel: str,
+    branches: list[str],
+) -> pd.DataFrame:
+    frames = []
+    for branch in branches:
+        curve_path = curve_dir / f"{case_key}_{node}_{channel}_{branch}.csv"
+        if not curve_path.exists():
+            continue
+        curve = pd.read_csv(curve_path)
+        if not curve.empty:
+            frames.append(curve)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
 def plot_diagnostics(case, exp: pd.DataFrame, sim: pd.DataFrame, output_dir: Path, config: dict[str, Any]) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     configure_matplotlib(output_dir.parent)
@@ -218,8 +238,12 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
     fig_cfg = plot_cfg.get("figure", {})
     figsize = tuple(fig_cfg.get("figsize", [10, 6]))
     linewidth = float(fig_cfg.get("linewidth", 3))
+    experimental_linestyle = fig_cfg.get("experimental_linestyle", "-")
+    simulation_linestyle = fig_cfg.get("simulation_linestyle", "--")
     colors = fig_cfg.get("colors", {})
     channel = plot_cfg.get("channel", config.get("selection", {}).get("channel", "total_force"))
+    branches = plot_cfg.get("branches", ["loading", "unloading"])
+    split_branches = bool(plot_cfg.get("split_branches", False))
     output_base = study_root(config) or comparison_output_folder
     output = resolve_path(plot_cfg.get("output_folder", "selected_plots"), base_dir=output_base)
     output.mkdir(parents=True, exist_ok=True)
@@ -244,24 +268,44 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
                 exp["force"],
                 color=color,
                 linewidth=linewidth,
-                linestyle="-",
+                linestyle=experimental_linestyle,
                 label=f"{case_key} experimental",
             )
 
             curve_dir = sim_folders[row["dataset"]] / "analysis" / "interpolated_curves"
-            for branch in plot_cfg.get("branches", ["loading", "unloading"]):
-                curve_path = curve_dir / f"{case_key}_{row['node']}_{channel}_{branch}.csv"
-                if not curve_path.exists():
+            if split_branches:
+                for branch in branches:
+                    curve_path = curve_dir / f"{case_key}_{row['node']}_{channel}_{branch}.csv"
+                    if not curve_path.exists():
+                        continue
+                    curve = pd.read_csv(curve_path)
+                    ax.plot(
+                        curve["diameter"],
+                        curve["simulation_force_outliers_excluded_interpolated"],
+                        color=color,
+                        linewidth=max(1.2, linewidth * 0.65),
+                        linestyle=simulation_linestyle,
+                        alpha=0.9,
+                        label=f"{case_key} {row['dataset']} {row['node']} {branch}",
+                    )
+            else:
+                curve = load_selected_simulation_curve(
+                    curve_dir,
+                    case_key,
+                    row["node"],
+                    channel,
+                    branches,
+                )
+                if curve.empty:
                     continue
-                curve = pd.read_csv(curve_path)
                 ax.plot(
                     curve["diameter"],
                     curve["simulation_force_outliers_excluded_interpolated"],
                     color=color,
                     linewidth=max(1.2, linewidth * 0.65),
-                    linestyle="--",
+                    linestyle=simulation_linestyle,
                     alpha=0.9,
-                    label=f"{case_key} {row['dataset']} {row['node']} {branch}",
+                    label=f"{case_key} {row['dataset']} {row['node']}",
                 )
 
         ax.set_xlabel("Diameter")

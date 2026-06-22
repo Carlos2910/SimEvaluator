@@ -41,6 +41,7 @@ exp-sim-compare plot-selected studies/crimpability_radial_force/config.yaml
 ```
 
 This uses `selected_best_simulations_total_force.csv` by default. With a study-local config, grouped figures are written to `studies/<study_name>/selected_plots/`.
+Selected plots join loading and unloading into one simulation curve by default; set `selected_plot.split_branches: true` to draw branch segments separately.
 
 ## Study Structure
 
