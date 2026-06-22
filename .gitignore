@@ -1,12 +1,16 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.DS_Store
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .venv/
 dist/
 build/
+
+# Local study folders contain user datasets, generated analyses, and study-specific configs.
+studies/
 
 # Local generated analysis outputs if configs are changed to write inside the repo.
 analysis/

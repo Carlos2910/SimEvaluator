@@ -26,7 +26,7 @@ python3 -m pip install -e ".[dev]"
 
 ## Run Crimpability Analysis
 
-After you move the data into `studies/crimpability_radial_force/datasets/`:
+After you create a local study folder and move the data into `studies/crimpability_radial_force/datasets/`:
 
 ```bash
 exp-sim-compare run studies/crimpability_radial_force/config.yaml
@@ -45,7 +45,9 @@ Selected plots join loading and unloading into one simulation curve by default; 
 
 ## Study Structure
 
-The `configs/` folder is only for reusable templates. Active study configs live inside each study folder as `config.yaml`.
+The `configs/` folder is only for reusable templates. Active study configs live inside each local study folder as `config.yaml`.
+
+The `studies/` folder is ignored by git because it contains local datasets, generated analyses, selected plots, and study-specific configs. Keep those files on your machine; use `configs/study_template.yaml` as the tracked starting point for new studies.
 
 The recommended structure is:
 
