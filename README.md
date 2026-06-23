@@ -1,199 +1,351 @@
-# Experimental Simulation Comparison
+# SimEvaluator: Simulation–Experiment Agreement Pipeline
 
-Reusable pipeline for comparing experimental test curves with simulation curves.
+A Python pipeline for the automated, metric-based evaluation of finite element (FE) simulation datasets against experimental mechanical test curves. SimEvaluator quantifies agreement through error metrics, detects and classifies outlier spikes, ranks competing simulation variants, and generates diagnostic and publication-ready comparison plots.
 
-The first configured workflow reproduces the crimpability/radial-force analysis:
+## Table of Contents
 
-- load experimental `diameter, force` text files,
-- load simulation files with `disp`, `RF1`, `RF2`, `RF3`,
-- align the simulation minimum diameter to the experimental minimum diameter,
-- calculate `total_force = sqrt(RF1^2 + RF2^2 + RF3^2)`,
-- detect simulation outliers with a rolling-median/Hampel-like detector,
-- split loading and unloading at minimum diameter,
-- include the minimum-diameter point in both branches,
-- choose a fair metric grid from the simulation/experimental resolution,
-- export paired comparison curves,
-- calculate metrics and rank candidate simulations,
-- generate diagnostic and selected-case plots.
+- [Overview](#overview)
+- [Features](#features)
+- [Repository Structure](#repository-structure)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Input Data Format](#input-data-format)
+- [Output Structure](#output-structure)
+- [Analysis Workflow](#analysis-workflow)
+- [Key Metrics](#key-metrics)
+- [Configuration Reference](#configuration-reference)
+- [Tests](#tests)
+- [Limitations](#limitations)
+- [Citation](#citation)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Install
+## Overview
 
-From the repository root:
+SimEvaluator evaluates how well FE simulation force–displacement curves match experimental mechanical test data. It was developed for the analysis of radial-force and crimpability tests of braided medical devices, where multiple simulation datasets — representing different mesh revisions, material parameters, or output nodes — must be compared against experimental curves to identify the best-fitting model.
 
-```bash
-python3 -m pip install -e ".[dev]"
+The pipeline automates the full evaluation workflow:
+
+- Curve alignment in the diameter domain
+- Outlier spike detection with a two-tier flagging and exclusion system
+- Loading and unloading branch splitting at maximum compression
+- Adaptive metric grid selection between simulation-native and experimental grids
+- Error metric computation (RMSE, MAE, sMAPE, NRMSE)
+- Cross-dataset ranking and best-simulation selection per test case
+- Diagnostic and selected-case figure generation
+
+Full implementation details and configuration options are documented in this repository, which is the reference codebase cited in [[PAPER CITATION]].
+
+## Features
+
+- **Diameter-domain alignment**: Converts simulation displacement to diameter by anchoring the simulated minimum diameter to the experimental minimum, ensuring both curves share the same physical reference
+- **Two-tier outlier detection**: Rolling Hampel filter (diameter-span window) separates *flagged* (borderline) from *excluded* (strong spike) points — only spikes whose residual exceeds a configurable multiple of the detection threshold are removed; borderline data is never silently discarded
+- **Adaptive metric grid**: Automatically selects the sparser curve's native grid as the comparison reference, interpolating the denser curve onto it to avoid resolution-driven metric inflation
+- **Branch-resolved metrics**: Computes RMSE, MAE, sMAPE, bias, max absolute error and NRMSE independently for loading and unloading branches as well as the combined weighted curve
+- **Multi-dataset ranking**: Ranks all simulation datasets per test case by composite rank score across selected metrics and selects the best-fitting variant per case
+- **Publication-ready plots**: Per-simulation diagnostic figures and selected-case overlay plots supporting raw, cleaned, or smoothed native simulation curves
+- **Generic study structure**: Any study with experimental and simulation datasets follows the same folder layout — no hardcoded dataset names anywhere in the pipeline
+
+## Repository Structure
+
+```
+SimEvaluator/
+├── configs/
+│   └── study_template.yaml      # Reusable config template for new studies
+├── src/
+│   └── exp_sim_compare/
+│       ├── cli.py               # Command-line entry points
+│       ├── pipeline.py          # Main orchestration loop
+│       ├── loaders.py           # Experimental and simulation file readers
+│       ├── alignment.py         # Diameter-domain alignment
+│       ├── outliers.py          # Hampel-based outlier detection
+│       ├── interpolation.py     # Grid pairing and metric grid selection
+│       ├── metrics.py           # Error metric computation
+│       ├── branches.py          # Loading/unloading branch splitting
+│       ├── ranking.py           # Cross-dataset ranking and selection
+│       ├── plotting.py          # Diagnostic and selected-case figures
+│       └── reports.py           # CSV output writers
+├── tests/                       # Unit and integration tests (pytest)
+├── studies/                     # Local study folders (gitignored)
+├── pyproject.toml               # Package metadata and dependencies
+├── README.md                    # This documentation
+└── .gitignore
 ```
 
-## Run Crimpability Analysis
+> **Note**: The `studies/` folder is gitignored because it contains local datasets, generated analyses, and study-specific configuration files. Use `configs/study_template.yaml` as the starting point for new studies.
 
-After you create a local study folder and move the data into `studies/crimpability_radial_force/datasets/`:
+## Installation
+
+### Prerequisites
+
+- Python ≥ 3.10
+- [Conda](https://docs.conda.io/) (recommended) or pip with a virtual environment
+
+### Option A — Conda (recommended)
+
+```bash
+conda create -n exp-sim-compare python=3.11 -y
+conda activate exp-sim-compare
+git clone https://github.com/Carlos2910/SimEvaluator.git
+cd SimEvaluator
+pip install -e ".[dev]"
+```
+
+### Option B — pip with virtual environment
+
+```bash
+git clone https://github.com/Carlos2910/SimEvaluator.git
+cd SimEvaluator
+python -m venv .venv
+source .venv/bin/activate        # On Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
+### Dependencies
+
+| Package | Minimum version | Purpose |
+|---|---|---|
+| `matplotlib` | ≥ 3.7 | Diagnostic and comparison plots |
+| `numpy` | ≥ 1.24 | Numerical array operations |
+| `openpyxl` | ≥ 3.1 | Reading simulation `.xlsx` files |
+| `pandas` | ≥ 2.0 | Tabular data and CSV output |
+| `PyYAML` | ≥ 6.0 | Study configuration parsing |
+| `pytest` | ≥ 7.0 | Test suite (dev only) |
+
+## Usage
+
+### Run the full analysis pipeline
+
+```bash
+exp-sim-compare run studies/<study_name>/config.yaml
+```
+
+This processes every simulation dataset defined in the config, computes metrics, writes per-dataset outputs, and (if multiple datasets exist) runs cross-dataset comparison and ranking.
+
+### Generate selected-case plots
+
+```bash
+exp-sim-compare plot-selected studies/<study_name>/config.yaml
+```
+
+Reads `selected_best_simulations_total_force.csv` from the comparison folder and produces one overlay plot per test case, showing the experimental curve alongside the best-fitting simulation.
+
+### Example — crimpability/radial-force study
 
 ```bash
 exp-sim-compare run studies/crimpability_radial_force/config.yaml
-```
-
-Each simulation dataset is its own analysis unit, so outputs are written next to the simulation files that produced them.
-
-## Plot Selected Simulations
-
-```bash
 exp-sim-compare plot-selected studies/crimpability_radial_force/config.yaml
 ```
 
-This uses `selected_best_simulations_total_force.csv` by default. With a study-local config, grouped figures are written to `studies/<study_name>/selected_plots/`.
-Selected plots join loading and unloading into one simulation curve by default; set `selected_plot.split_branches: true` to draw branch segments separately.
-Selected plots can show any combination of native simulation curves:
+## Input Data Format
 
-```yaml
-selected_plot:
-  simulation_data:
-    - raw       # native simulation force
-    - cleaned   # native simulation after excluded spikes are removed
-    - smoothed  # cleaned native simulation with median smoothing for visual readability
+### Experimental data
+
+Plain-text files (`.txt`) with two columns: `diameter` (mm) and `force` (N), space- or tab-delimited. One file per test case:
+
+```
+diameter    force
+6.150       0.00
+6.100       1.23
+...
 ```
 
-Use `interpolated` in the same list when you want to show the processed paired curve used for the exported interpolation audit files.
+### Simulation data
 
-## Study Structure
+Excel files (`.xlsx`) exported from FE post-processing. Required columns:
 
-The `configs/` folder is only for reusable templates. Active study configs live inside each local study folder as `config.yaml`.
+| Column | Description |
+|---|---|
+| `disp` | Displacement (mm) |
+| `RF1` | Reaction force — component 1 (N) |
+| `RF2` | Reaction force — component 2 (N) |
+| `RF3` | Reaction force — component 3 (N) |
 
-The `studies/` folder is ignored by git because it contains local datasets, generated analyses, selected plots, and study-specific configs. Keep those files on your machine; use `configs/study_template.yaml` as the tracked starting point for new studies.
+`total_force = sqrt(RF1² + RF2² + RF3²)` is computed internally.
 
-The recommended structure is:
+### Study directory layout
 
-```text
+```
 studies/
-  crimpability_radial_force/
-    config.yaml
+  <study_name>/
+    config.yaml                      # Study-local configuration
     datasets/
       experimental/
         W6-AP.txt
         W6-CEEP.txt
         ...
       simulations/
-        sim_raw_data_revision/
+        <dataset_name_1>/
+          sim-W6-AP-Node1.xlsx
+          sim-W6-AP-Node6.xlsx
+          ...
+        <dataset_name_2>/
           sim-W6-AP-Node1.xlsx
           ...
-          analysis/
-            metrics_by_file.csv
-            detected_outliers.csv
-            selection_summary_total_force.csv
-            interpolated_curves/
-            figures/
-            interpolated_figures/
-        sim_raw_data2/
-          sim-W6-AP-Node1.xlsx
-          ...
-          analysis/
-            metrics_by_file.csv
-            detected_outliers.csv
-            selection_summary_total_force.csv
-            interpolated_curves/
-            figures/
-            interpolated_figures/
-    comparison/
-      simulation_dataset_comparison_by_channel.csv
-      simulation_dataset_best_by_channel.csv
-      simulation_dataset_comparison_by_channel_branch.csv
-      simulation_dataset_best_by_channel_branch.csv
-      simulation_dataset_comparison_total_force.csv
-      selected_best_simulations_total_force.csv
-      selected_best_simulations_total_force_by_branch.csv
-      sim_results_comparison_total_force.csv
-    selected_plots/
-      WY-AP_total_force_selected.png
-      WY-CEEP_total_force_selected.png
 ```
 
-Future studies follow the same pattern:
+## Output Structure
 
-```text
-studies/
-  axial_compression/
-    config.yaml
-    datasets/
-      experimental/
-      simulations/
-        sim_model_1/
-          analysis/
-            figures/
-            interpolated_figures/
-        sim_model_2/
-          analysis/
-            figures/
-            interpolated_figures/
-    comparison/
-    selected_plots/
+Per-dataset outputs are written alongside the simulation files:
+
+```
+datasets/simulations/<dataset_name>/analysis/
+├── metrics_by_file.csv              # Full metric table (all branches, channels, variants)
+├── detected_outliers.csv            # Flagged and excluded points per file
+├── selection_summary_total_force.csv
+├── figures/                         # Native simulation curve diagnostics
+└── interpolated_figures/            # Paired interpolated curve diagnostics
 ```
 
-## Analysis vs Comparison
+Cross-dataset comparison outputs (written when ≥ 2 datasets exist):
 
-Per-dataset analysis always runs for each simulation dataset:
+```
+comparison/
+├── simulation_dataset_comparison_by_channel.csv
+├── simulation_dataset_comparison_by_channel_branch.csv
+├── simulation_dataset_best_by_channel.csv
+├── simulation_dataset_best_by_channel_branch.csv
+├── simulation_dataset_comparison_total_force.csv
+├── selected_best_simulations_total_force.csv
+├── selected_best_simulations_total_force_by_branch.csv
+└── sim_results_comparison_total_force.csv  # Per-case summary with one column group per dataset
 
-```text
-studies/<study>/datasets/simulations/<dataset>/analysis/
+selected_plots/
+└── <case>_total_force_selected.png
 ```
 
-The per-dataset diagnostics are split into two figure sets:
+## Analysis Workflow
 
-```text
-studies/<study>/datasets/simulations/<dataset>/analysis/figures/
-studies/<study>/datasets/simulations/<dataset>/analysis/interpolated_figures/
-```
+1. **Load experimental data** — reads diameter–force text files for each test case
+2. **Load simulation data** — reads displacement–reaction-force Excel files; computes `total_force`
+3. **Diameter alignment** — converts simulation displacement to diameter by matching the simulated minimum diameter to the experimental minimum diameter
+4. **Outlier detection** — applies a rolling Hampel filter per branch; classifies points as *flagged* (borderline) or *excluded* (strong spike, residual/threshold ≥ `exclusion_threshold_ratio`)
+5. **Branch splitting** — splits each curve at minimum diameter (maximum compression) into loading and unloading segments; the minimum-diameter point is shared by both branches
+6. **Metric grid selection** — chooses the sparser curve's grid as the comparison reference (`auto` mode); interpolates the denser curve onto it
+7. **Metric computation** — computes RMSE, MAE, sMAPE, bias, max absolute error, NRMSE_peak, and NRMSE_percent for loading, unloading, and combined-weighted branches under three metric variants: `raw`, `outliers_flagged`, `outliers_excluded`
+8. **Ranking** — assigns rank scores per metric across all datasets and cases; produces composite rank sums; selects the best simulation per test case
+9. **Plotting** — generates per-simulation diagnostic figures and selected-case overlay plots
 
-Cross-dataset comparison is a multi-dataset feature. It runs only when configured and meaningful:
+## Key Metrics
 
-```yaml
-comparison:
-  enabled: auto   # auto, true, false
-```
+| Metric | Symbol | Description |
+|---|---|---|
+| Root Mean Square Error | RMSE | Overall force deviation (N) |
+| Mean Absolute Error | MAE | Average absolute deviation (N) |
+| Symmetric Mean Absolute Percent Error | sMAPE | Relative error bounded [0, 200%] |
+| Bias | — | Signed mean deviation; positive = simulation over-predicts |
+| Max Absolute Error | — | Worst-case point deviation (N) |
+| Normalized RMSE (peak) | NRMSE_peak | RMSE normalised by peak experimental force |
+| Normalized RMSE (range) | NRMSE_percent | 100 × RMSE / experimental force range (%) |
 
-- `auto`: run comparison only if at least two simulation datasets exist.
-- `true`: require at least two simulation datasets, otherwise raise an error.
-- `false`: skip comparison.
+All metrics are computed independently for the `loading` branch, `unloading` branch, and `combined_weighted` (concatenated loading + unloading, used for ranking and selection).
 
-Selected plots behave similarly:
+## Configuration Reference
 
-```yaml
-selected_plot:
-  enabled: auto   # auto, true, false
-```
-
-- `auto`: plot only if the selected-cases CSV exists.
-- `true`: require the selected-cases CSV.
-- `false`: skip selected plots.
-
-## Metric Variant Used For Selection
-
-The default selection variant is:
-
-```text
-outliers_excluded
-```
-
-This uses the cleaned simulation after only strong excluded spikes are removed. The metric grid is controlled by:
-
-```yaml
-metrics:
-  comparison_grid: auto
-```
-
-With `auto`, sparse simulations are compared on the simulation-native diameter grid by interpolating the experiment to the simulation diameters. Denser simulations are compared on the experimental grid. The exported `outliers_excluded_interpolated` curve is still written for auditability, but it is no longer the required default for selecting the best simulation.
-
-Outlier detection separates review from exclusion:
+A study config is a YAML file derived from `configs/study_template.yaml`. Key sections:
 
 ```yaml
 outliers:
-  window_diameter_span: 0.10
-  min_window_points: 21
-  exclusion_threshold_ratio: 3.0
+  window_diameter_span: 0.10      # Hampel window width in mm (diameter domain)
+  min_window_points: 21           # Minimum points in window (guards sparse files)
+  sigma: 6.0                      # Detection threshold multiplier (× robust σ)
+  exclusion_threshold_ratio: 3.0  # residual/threshold ratio required for exclusion
+
+metrics:
+  comparison_grid: auto           # auto | experimental | simulation_native
+
+selection:
+  metric_variant: outliers_excluded
+  channel: total_force
+  rank_by: [RMSE, sMAPE, NRMSE_percent]
+
+comparison:
+  enabled: auto                   # auto | true | false
+
+selected_plot:
+  enabled: auto                   # auto | true | false
+  simulation_data:
+    - smoothed                    # raw | cleaned | smoothed | interpolated
 ```
 
-Points above the Hampel threshold are flagged. The diameter span sets the physical neighborhood, while `min_window_points` prevents sparse files from using a too-small local window. Only stronger points whose residual/threshold ratio is at least `exclusion_threshold_ratio` are removed from cleaned metrics and cleaned plots. Borderline local behavior remains in the data.
+`comparison: auto` runs cross-dataset ranking only when ≥ 2 simulation datasets are present.  
+`selected_plot: auto` generates overlay plots only when the selected-cases CSV exists.
 
 ## Tests
 
+Run the full test suite (15 tests) with:
+
 ```bash
-python3 -m pytest
+pytest
 ```
+
+Tests cover branch splitting, configuration path resolution, interpolation and grid selection, metric computation, outlier flagging versus exclusion, and selected-plot curve loading.
+
+## Limitations
+
+- **Force channel**: Currently configured for `total_force = sqrt(RF1² + RF2² + RF3²)`. Other force channels are stored but the selection and ranking workflow targets total force by default.
+- **Simulation file format**: Requires `.xlsx` files with `disp`, `RF1`, `RF2`, `RF3` columns. Other FE output formats require a custom loader.
+- **Experimental file format**: Expects two-column diameter–force text files. Alternative formats require a custom loader.
+- **Study generality**: The pipeline is validated for radial-force crimpability tests. Adaptation to other mechanical test types may require adjustments to the alignment and branch-splitting logic.
+- **Memory**: Large simulation files with tens of thousands of output points are supported but processing time scales roughly linearly with file size.
+
+## Citation
+
+If you use SimEvaluator in your research, please cite both the paper and the software:
+
+### Software — BibTeX
+
+```bibtex
+@software{aguilar_vega_2026_simevaluator,
+  author       = {Aguilar Vega, Carlos},
+  title        = {{SimEvaluator: Simulation--Experiment Agreement Pipeline}},
+  year         = {2026},
+  publisher    = {GitHub},
+  url          = {https://github.com/Carlos2910/SimEvaluator},
+  version      = {0.1.0}
+}
+```
+
+### Software — APA
+
+```
+Aguilar Vega, C. (2026). SimEvaluator: Simulation–experiment agreement pipeline
+(Version 0.1.0) [Computer software]. https://github.com/Carlos2910/SimEvaluator
+```
+
+### Software — Plain text
+
+```
+Aguilar Vega, Carlos. (2026). SimEvaluator: Simulation–Experiment Agreement Pipeline.
+Retrieved from https://github.com/Carlos2910/SimEvaluator
+```
+
+## Contributing
+
+SimEvaluator was developed for mechanical testing research and is structured to be extended to new study types.
+
+### Ways to contribute
+
+- **Bug reports**: Open a GitHub issue with a minimal reproducible example
+- **New study types**: Adapt the loader and alignment modules for other test geometries
+- **Additional metrics**: Extend `metrics.py` with domain-specific error measures
+- **Documentation**: Improve configuration examples and workflow guides
+
+### Development setup
+
+```bash
+git clone https://github.com/Carlos2910/SimEvaluator.git
+cd SimEvaluator
+conda create -n exp-sim-compare python=3.11 -y
+conda activate exp-sim-compare
+pip install -e ".[dev]"
+pytest
+```
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+---
+
+**SimEvaluator** — Automated metric-based evaluation of FE simulation accuracy against experimental mechanical test data.
