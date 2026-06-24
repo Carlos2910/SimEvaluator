@@ -121,7 +121,11 @@ def read_experimental(config: dict[str, Any], case_key: str) -> pd.DataFrame:
         raise FileNotFoundError(f"Missing experimental file for {case_key}: {path}")
 
     data = np.loadtxt(path)
-    return pd.DataFrame({"diameter": data[:, 0], "force": data[:, 1]})
+    df = pd.DataFrame({"diameter": data[:, 0], "force": data[:, 1]})
+    scale = float(exp_cfg.get("scale", 1.0))
+    if scale != 1.0:
+        df["force"] *= scale
+    return df
 
 
 def read_simulation(case: SimCase, config: dict[str, Any]) -> pd.DataFrame:

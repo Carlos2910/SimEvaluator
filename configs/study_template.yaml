@@ -41,7 +41,6 @@ channels:
 
 alignment:
   method: sim_min_diameter_to_experimental_min_diameter
-  nominal_starting_diameters: {}
 
 outliers:
   method: rolling_hampel

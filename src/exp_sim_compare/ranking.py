@@ -28,7 +28,6 @@ def make_selection_summary(metrics_df: pd.DataFrame, config: dict[str, Any]) -> 
         "n_outliers_channel",
         "diameter_alignment",
         "starting_diameter_used",
-        "nominal_starting_diameter",
         "exp_min_diameter",
         "max_compression_disp",
         "MAE",

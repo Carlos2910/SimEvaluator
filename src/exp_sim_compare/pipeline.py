@@ -42,7 +42,6 @@ def alignment_info(sim: pd.DataFrame) -> dict[str, object]:
     return {
         "diameter_alignment": sim.attrs.get("diameter_alignment"),
         "starting_diameter_used": sim.attrs.get("starting_diameter_used"),
-        "nominal_starting_diameter": sim.attrs.get("nominal_starting_diameter"),
         "exp_min_diameter": sim.attrs.get("exp_min_diameter"),
         "max_compression_disp": sim.attrs.get("max_compression_disp"),
     }

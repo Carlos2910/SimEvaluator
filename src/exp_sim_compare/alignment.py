@@ -25,11 +25,8 @@ def align_simulation_diameter(
     max_compression_disp = float(out["disp"].max())
     start = float(exp_min_diameter + 2.0 * max_compression_disp)
     out["diameter"] = start - 2.0 * out["disp"]
-
-    nominal = config.get("alignment", {}).get("nominal_starting_diameters", {})
     out.attrs["diameter_alignment"] = method
     out.attrs["exp_min_diameter"] = exp_min_diameter
     out.attrs["max_compression_disp"] = max_compression_disp
     out.attrs["starting_diameter_used"] = start
-    out.attrs["nominal_starting_diameter"] = float(nominal.get(case.case_key, np.nan))
     return out

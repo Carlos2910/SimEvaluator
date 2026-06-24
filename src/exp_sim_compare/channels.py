@@ -31,4 +31,7 @@ def comparison_channel(sim: pd.DataFrame, channel: str, config: dict[str, Any]) 
     channel_cfg = config.get("channels", {}).get(channel, {})
     if channel_cfg.get("transform") == "abs":
         values = values.abs()
+    scale = float(channel_cfg.get("scale", 1.0))
+    if scale != 1.0:
+        values *= scale
     return values
