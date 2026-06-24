@@ -35,14 +35,13 @@ from .outliers import add_outlier_masks
 
 def load_selected_simulation_curve(
     curve_dir: Path,
-    case_key: str,
-    node: str,
+    simulation_id: str,
     channel: str,
     branches: list[str],
 ) -> pd.DataFrame:
     frames = []
     for branch in branches:
-        curve_path = curve_dir / f"{case_key}_{node}_{channel}_{branch}.csv"
+        curve_path = curve_dir / f"{simulation_id}_{channel}_{branch}.csv"
         if not curve_path.exists():
             continue
         curve = pd.read_csv(curve_path)
@@ -71,7 +70,9 @@ def selected_native_simulation_curves(
     config: dict[str, Any],
 ) -> dict[str, pd.DataFrame]:
     sim_path = folder / file_name
-    case = parse_simulation_path(dataset, folder, sim_path, config["simulation"]["filename_regex"])
+    regex = config["simulation"].get("filename_regex", r"^sim-(.+?)-Node(\d+)(.*)?\..+$")
+    cases_cfg = config.get("cases", {})
+    case = parse_simulation_path(dataset, folder, sim_path, regex, cases_cfg)
     if case is None:
         return {}
 
@@ -319,6 +320,7 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
     fig_cfg = plot_cfg.get("figure", {})
     figsize = tuple(fig_cfg.get("figsize", [10, 6]))
     linewidth = float(fig_cfg.get("linewidth", 3))
+    simulation_linewidth_scale = float(fig_cfg.get("simulation_linewidth_scale", 0.65))
     experimental_linestyle = fig_cfg.get("experimental_linestyle", "-")
     simulation_linestyle = fig_cfg.get("simulation_linestyle", "--")
     simulation_linestyles = {
@@ -345,105 +347,227 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
     output.mkdir(parents=True, exist_ok=True)
     sim_folders = simulation_folders(config)
 
-    grouped = {
-        "WY-AP": selected[selected["case"].str.endswith("-AP")],
-        "WY-CEEP": selected[selected["case"].str.endswith("-CEEP")],
-    }
-    written = []
-    for group_name, group in grouped.items():
-        if group.empty:
-            continue
-        fig, ax = plt.subplots(figsize=figsize)
-        for _, row in group.sort_values("case").iterrows():
-            case_key = row["case"]
-            width_key = case_key.split("-")[0].replace("W", "")
-            color = colors.get(width_key, "gray")
-            exp = read_experimental(config, case_key)
-            ax.plot(
-                exp["diameter"],
-                exp["force"],
-                color=color,
-                linewidth=linewidth,
-                linestyle=experimental_linestyle,
-                label=f"{case_key} experimental",
-            )
+    shared_kwargs: dict[str, Any] = dict(
+        config=config,
+        sim_folders=sim_folders,
+        output_dir=output,
+        channel=channel,
+        branches=branches,
+        simulation_data=simulation_data,
+        split_branches=split_branches,
+        figsize=figsize,
+        linewidth=linewidth,
+        simulation_linewidth_scale=simulation_linewidth_scale,
+        experimental_linestyle=experimental_linestyle,
+        simulation_linestyle=simulation_linestyle,
+        simulation_linestyles=simulation_linestyles,
+        simulation_alphas=simulation_alphas,
+        colors=colors,
+        fig_cfg=fig_cfg,
+    )
 
-            curve_dir = sim_folders[row["dataset"]] / "analysis" / "interpolated_curves"
-            native_curves: dict[str, pd.DataFrame] | None = None
-            for data_kind in simulation_data:
-                if data_kind == "interpolated":
-                    if split_branches:
-                        for branch in branches:
-                            curve_path = curve_dir / f"{case_key}_{row['node']}_{channel}_{branch}.csv"
-                            if not curve_path.exists():
-                                continue
-                            curve = pd.read_csv(curve_path)
-                            ax.plot(
-                                curve["diameter"],
-                                curve["simulation_force_outliers_excluded_interpolated"],
-                                color=color,
-                                linewidth=max(1.2, linewidth * 0.65),
-                                linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
-                                alpha=float(simulation_alphas.get(data_kind, 0.9)),
-                                label=f"{case_key} {row['dataset']} {row['node']} interpolated {branch}",
-                            )
-                        continue
-                    curve = load_selected_simulation_curve(
-                        curve_dir,
-                        case_key,
-                        row["node"],
-                        channel,
-                        branches,
-                    )
-                    if curve.empty:
-                        continue
-                    ax.plot(
-                        curve["diameter"],
-                        curve["simulation_force_outliers_excluded_interpolated"],
-                        color=color,
-                        linewidth=max(1.2, linewidth * 0.65),
-                        linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
-                        alpha=float(simulation_alphas.get(data_kind, 0.9)),
-                        label=f"{case_key} {row['dataset']} {row['node']} interpolated",
-                    )
+    written: list[Path] = []
+
+    # 1. Overall best across all datasets — always one combined figure
+    p = plot_one_selected_figure(
+        selected,
+        **shared_kwargs,
+        output_name=f"{channel}_selected",
+    )
+    if p is not None:
+        written.append(p)
+
+    # 2. Per-dataset best — one figure per dataset, independent of case naming
+    by_dataset_path = comparison_output_folder / "selected_best_simulations_total_force_by_dataset.csv"
+    if by_dataset_path.exists():
+        selected_by_dataset = pd.read_csv(by_dataset_path)
+        for dataset, dataset_rows in selected_by_dataset.groupby("dataset", sort=True):
+            p = plot_one_selected_figure(
+                dataset_rows,
+                **shared_kwargs,
+                output_name=f"{channel}_selected_{dataset}",
+            )
+            if p is not None:
+                written.append(p)
+
+    return written
+
+
+def _case_color(
+    case_key: str,
+    cases_cfg: dict,
+    colors: dict,
+    color_index: int,
+) -> str:
+    """Resolve plot color for a case using config hierarchy then auto-assignment."""
+    # 1. Explicit color in cases: config section
+    color = cases_cfg.get(case_key, {}).get("color")
+    if color:
+        return str(color)
+    # 2. figure.colors keyed by case_key directly
+    color = colors.get(case_key)
+    if color:
+        return str(color)
+    # 3. Legacy: figure.colors keyed by the width number extracted from W<N>-...
+    try:
+        width_key = case_key.split("-")[0].replace("W", "")
+        color = colors.get(width_key)
+        if color:
+            return str(color)
+    except Exception:
+        pass
+    # 4. Auto-assign from matplotlib default color cycle
+    return f"C{color_index % 10}"
+
+
+def plot_one_selected_figure(
+    selected: pd.DataFrame,
+    *,
+    config: dict[str, Any],
+    sim_folders: dict[str, Path],
+    output_dir: Path,
+    output_name: str,
+    channel: str,
+    branches: list[str],
+    simulation_data: list[str],
+    split_branches: bool,
+    figsize: tuple[float, float],
+    linewidth: float,
+    simulation_linewidth_scale: float,
+    experimental_linestyle: str,
+    simulation_linestyle: str,
+    simulation_linestyles: dict[str, str],
+    simulation_alphas: dict[str, float],
+    colors: dict[str, str],
+    fig_cfg: dict[str, Any],
+) -> Path | None:
+    """Plot all selected cases in one figure, independent of case naming conventions."""
+    if selected.empty:
+        return None
+
+    cases_cfg = config.get("cases", {})
+    # Build ordered case list: config order → alphabetical
+    all_cases = sorted(
+        selected["case"].unique(),
+        key=lambda c: (cases_cfg.get(c, {}).get("order", 9999), c),
+    )
+    color_index_map = {case: i for i, case in enumerate(all_cases)}
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    selected_sorted = selected.copy()
+    selected_sorted["_order"] = selected_sorted["case"].apply(
+        lambda c: (cases_cfg.get(c, {}).get("order", 9999), c)
+    )
+    selected_sorted = selected_sorted.sort_values("_order")
+
+    for _, row in selected_sorted.iterrows():
+        case_key = row["case"]
+        color = _case_color(case_key, cases_cfg, colors, color_index_map.get(case_key, 0))
+        # Derive unique simulation identity from the stored xlsx filename
+        simulation_id = str(row["file"]).removeprefix("sim-").removesuffix(".xlsx")
+
+        exp = read_experimental(config, case_key)
+        ax.plot(
+            exp["diameter"],
+            exp["force"],
+            color=color,
+            linewidth=linewidth,
+            linestyle=experimental_linestyle,
+            label=f"{case_key} experimental",
+        )
+
+        curve_dir = sim_folders[row["dataset"]] / "analysis" / "interpolated_curves"
+        native_curves: dict[str, pd.DataFrame] | None = None
+
+        for data_kind in simulation_data:
+            if data_kind == "interpolated":
+                if split_branches:
+                    for branch in branches:
+                        curve_path = curve_dir / f"{simulation_id}_{channel}_{branch}.csv"
+                        if not curve_path.exists():
+                            continue
+                        curve = pd.read_csv(curve_path)
+                        ax.plot(
+                            curve["diameter"],
+                            curve["simulation_force_outliers_excluded_interpolated"],
+                            color=color,
+                            linewidth=max(1.2, linewidth * simulation_linewidth_scale),
+                            linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
+                            alpha=float(simulation_alphas.get(data_kind, 0.9)),
+                            label=f"{case_key} {row['dataset']} {row['node']} interpolated {branch}",
+                        )
                     continue
 
-                if data_kind not in {"raw", "cleaned", "smoothed"}:
-                    raise ValueError(
-                        "selected_plot.simulation_data entries must be raw, cleaned, smoothed, or interpolated"
-                    )
-                if native_curves is None:
-                    native_curves = selected_native_simulation_curves(
-                        row["dataset"],
-                        sim_folders[row["dataset"]],
-                        row["file"],
-                        case_key,
-                        row["node"],
-                        channel,
-                        branches,
-                        config,
-                    )
-                curve = native_curves.get(data_kind, pd.DataFrame())
+                curve = load_selected_simulation_curve(
+                    curve_dir, simulation_id, channel, branches
+                )
                 if curve.empty:
                     continue
                 ax.plot(
                     curve["diameter"],
-                    curve[channel],
+                    curve["simulation_force_outliers_excluded_interpolated"],
                     color=color,
-                    linewidth=max(1.2, linewidth * 0.65),
+                    linewidth=max(1.2, linewidth * simulation_linewidth_scale),
                     linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
                     alpha=float(simulation_alphas.get(data_kind, 0.9)),
-                    label=f"{case_key} {row['dataset']} {row['node']} {data_kind}",
+                    label=f"{case_key} {row['dataset']} {row['node']} interpolated",
                 )
+                continue
 
-        ax.set_xlabel("Diameter")
-        ax.set_ylabel("Radial force (N/mm)")
-        ax.grid(True, alpha=0.25)
-        ax.legend(frameon=False, fontsize=8, ncol=1)
-        fig.tight_layout()
-        out_path = output / f"{group_name}_{channel}_selected.png"
-        fig.savefig(out_path, dpi=int(fig_cfg.get("dpi", 300)), bbox_inches="tight")
-        plt.close(fig)
-        written.append(out_path)
+            if data_kind not in {"raw", "cleaned", "smoothed"}:
+                raise ValueError(
+                    "selected_plot.simulation_data entries must be raw, cleaned, smoothed, or interpolated"
+                )
+            if native_curves is None:
+                native_curves = selected_native_simulation_curves(
+                    row["dataset"],
+                    sim_folders[row["dataset"]],
+                    row["file"],
+                    case_key,
+                    row["node"],
+                    channel,
+                    branches,
+                    config,
+                )
+            curve = native_curves.get(data_kind, pd.DataFrame())
+            if curve.empty:
+                continue
+            ax.plot(
+                curve["diameter"],
+                curve[channel],
+                color=color,
+                linewidth=max(1.2, linewidth * simulation_linewidth_scale),
+                linestyle=simulation_linestyles.get(data_kind, simulation_linestyle),
+                alpha=float(simulation_alphas.get(data_kind, 0.9)),
+                label=f"{case_key} {row['dataset']} {row['node']} {data_kind}",
+            )
 
-    return written
+    ax.set_xlabel(
+        fig_cfg.get("xlabel", "Diameter"),
+        fontsize=float(fig_cfg.get("label_fontsize", 10)),
+        fontname=fig_cfg.get("fontname"),
+    )
+    ax.set_ylabel(
+        fig_cfg.get("ylabel", "Radial force (N/mm)"),
+        fontsize=float(fig_cfg.get("label_fontsize", 10)),
+        fontname=fig_cfg.get("fontname"),
+    )
+    if bool(fig_cfg.get("grid", True)):
+        ax.grid(True, alpha=float(fig_cfg.get("grid_alpha", 0.25)))
+    if bool(fig_cfg.get("show_legend", True)):
+        ax.legend(
+            frameon=bool(fig_cfg.get("legend_frameon", False)),
+            fontsize=float(fig_cfg.get("legend_fontsize", 8)),
+            ncol=int(fig_cfg.get("legend_ncol", 1)),
+        )
+    fig.tight_layout()
+    out_path = output_dir / f"{output_name}.png"
+    fig.savefig(
+        out_path,
+        dpi=int(fig_cfg.get("dpi", 300)),
+        bbox_inches="tight",
+        pad_inches=float(fig_cfg.get("savefig_pad_inches", 0.1)),
+    )
+    plt.close(fig)
+    return out_path

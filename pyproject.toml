@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "experimental-simulation-comparison"
+name = "sim-evaluator"
 version = "0.1.0"
-description = "Reusable pipeline for statistically comparing experimental tests with simulation results."
+description = "Automated metric-based evaluation of FE simulation datasets against experimental mechanical test curves."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

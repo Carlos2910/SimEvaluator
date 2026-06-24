@@ -16,10 +16,12 @@ class SimCase:
     dataset: str
     folder: Path
     path: Path
-    sample: str
-    condition: str
+    case_token: str      # raw token from filename between sim- and -NodeN
+    simulation_id: str   # unique output identity: {case_token}-Node{N}{suffix}
+    sample: str          # kept for CSV output compat (= case_token for generic regex)
+    condition: str       # kept for CSV output compat (= "" for generic regex)
     node: str
-    case_key: str
+    case_key: str        # experimental file key (from cases config or = case_token)
 
 
 def simulation_folders(config: dict[str, Any]) -> dict[str, Path]:
@@ -49,30 +51,61 @@ def simulation_folders(config: dict[str, Any]) -> dict[str, Path]:
     raise ValueError("simulation.folders must be a mapping or list")
 
 
-def parse_simulation_path(dataset: str, folder: Path, path: Path, regex: str) -> SimCase | None:
+def parse_simulation_path(
+    dataset: str,
+    folder: Path,
+    path: Path,
+    regex: str,
+    cases_cfg: dict | None = None,
+) -> SimCase | None:
     match = re.match(regex, path.name)
     if not match:
         return None
-    sample, condition, node = match.groups()
+    groups = match.groups()
+
+    # Detect regex format by checking which group holds the node number (all digits).
+    # Generic format  (case_token, node_num[, suffix]) — groups[1] is digits.
+    # Legacy 3-group  (sample, condition, node_num)    — groups[2] is digits.
+    if len(groups) >= 2 and str(groups[1]).isdigit():
+        case_token = groups[0]
+        node_num = groups[1]
+        suffix = (groups[2] or "") if len(groups) > 2 else ""
+        sample = case_token
+        condition = ""
+    elif len(groups) == 3 and str(groups[2]).isdigit():
+        sample, condition, node_num = groups
+        suffix = ""
+        case_token = f"{sample}-{condition}"
+    else:
+        return None
+
+    node = f"Node{node_num}"
+    simulation_id = f"{case_token}-Node{node_num}{suffix}"
+    cfg = (cases_cfg or {}).get(case_token, {})
+    case_key = cfg.get("experimental_case", case_token)
+
     return SimCase(
         dataset=dataset,
         folder=folder,
         path=path,
+        case_token=case_token,
+        simulation_id=simulation_id,
         sample=sample,
         condition=condition,
-        node=f"Node{node}",
-        case_key=f"{sample}-{condition}",
+        node=node,
+        case_key=case_key,
     )
 
 
 def list_sim_cases(config: dict[str, Any], dataset: str, folder: Path) -> list[SimCase]:
     regex = config["simulation"].get(
-        "filename_regex", r"^sim-(W\d+)-(AP|CEEP)-Node(\d+)\.xlsx$"
+        "filename_regex", r"^sim-(.+?)-Node(\d+)(.*)?\..+$"
     )
+    cases_cfg = config.get("cases", {})
     cases = [
         case
         for path in sorted(folder.glob("*.xlsx"))
-        if (case := parse_simulation_path(dataset, folder, path, regex))
+        if (case := parse_simulation_path(dataset, folder, path, regex, cases_cfg))
     ]
     if not cases:
         raise FileNotFoundError(f"No simulation files matched in {folder}")

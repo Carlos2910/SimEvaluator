@@ -18,7 +18,7 @@ simulation:
       folder: simulation_dataset_1
     simulation_dataset_2:
       folder: simulation_dataset_2
-  filename_regex: "^sim-(W\\d+)-(AP|CEEP)-Node(\\d+)\\.xlsx$"
+  filename_regex: "^sim-(.+?)-Node(\\d+)(.*)?\\..+$"
   displacement_column: disp
   force_columns:
     - RF1
@@ -104,3 +104,22 @@ selected_plot:
       interpolated: 0.90
     dpi: 300
     colors: {}
+
+# Optional: per-case metadata keyed by case_token (everything between sim- and -NodeN).
+# If this section is absent, case_token is used directly as the case_key and
+# colors are auto-assigned from the matplotlib color cycle.
+#
+# cases:
+#   W6-AP:
+#     experimental_case: W6-AP   # which experimental file to compare against
+#     color: "#dc845a"           # line color in selected plots
+#     order: 10                  # sort order within a figure (lower = earlier)
+#   W9-AP:
+#     experimental_case: W9-AP
+#     color: "#8497bb"
+#     order: 20
+#   # Cross-naming example: step2 token maps to an existing experimental file
+#   W6_100-150:
+#     experimental_case: W6-AP
+#     color: "#dc845a"
+#     order: 10

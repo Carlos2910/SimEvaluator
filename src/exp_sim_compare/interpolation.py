@@ -189,7 +189,7 @@ def pair_for_metric_grid(
 
 
 def interpolated_curve_path(curve_dir: Path, case: SimCase, channel: str, branch: str) -> Path:
-    return curve_dir / f"{case.case_key}_{case.node}_{channel}_{branch}.csv"
+    return curve_dir / f"{case.simulation_id}_{channel}_{branch}.csv"
 
 
 def build_interpolated_curve(

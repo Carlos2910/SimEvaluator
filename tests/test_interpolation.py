@@ -60,8 +60,10 @@ def test_build_interpolated_curve_filters_local_peak():
         dataset="sim_raw_data_revision",
         folder=Path("."),
         path=Path("sim-W6-AP-Node1.xlsx"),
-        sample="W6",
-        condition="AP",
+        case_token="W6-AP",
+        simulation_id="W6-AP-Node1",
+        sample="W6-AP",
+        condition="",
         node="Node1",
         case_key="W6-AP",
     )

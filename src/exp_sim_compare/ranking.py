@@ -127,6 +127,37 @@ def write_cross_dataset_comparisons(
     paths["selected_total_force"] = output_folder / "selected_best_simulations_total_force.csv"
     selected.to_csv(paths["selected_total_force"], index=False)
 
+    selected_by_dataset = (
+        comparison[comparison["channel"] == selection_channel]
+        .groupby(["dataset", "case"], as_index=False)
+        .first()
+    )
+    selected_by_dataset = selected_by_dataset[
+        [
+            "dataset",
+            "case",
+            "node",
+            "file",
+            "metric_variant",
+            "RMSE",
+            "sMAPE",
+            "NRMSE_percent",
+            "NRMSE_peak",
+            "rank_RMSE",
+            "rank_sMAPE",
+            "rank_NRMSE_percent",
+            "rank_sum",
+        ]
+    ]
+    paths["selected_total_force_by_dataset"] = (
+        output_folder / "selected_best_simulations_total_force_by_dataset.csv"
+    )
+    selected_by_dataset.to_csv(paths["selected_total_force_by_dataset"], index=False)
+    for dataset, group in selected_by_dataset.groupby("dataset", sort=True):
+        dataset_path = output_folder / f"selected_best_simulations_total_force_{dataset}.csv"
+        group.to_csv(dataset_path, index=False)
+        paths[f"selected_total_force_{dataset}"] = dataset_path
+
     branch_paths = write_branch_comparisons(dataset_metrics, output_folder, config)
     paths.update(branch_paths)
     paths["total_force_summary"] = write_total_force_summary(comparison, output_folder, selection_channel)
