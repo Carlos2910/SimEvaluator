@@ -87,6 +87,10 @@ selected_plot:
     - loading
     - unloading
   output_folder: selected_plots
+  # Optional: define subset groups of cases to generate separate group figures (e.g. AP/CEEP split)
+  # groups:
+  #   WY-AP: "-AP"
+  #   WY-CEEP: "-CEEP"
   figure:
     figsize: [10, 6]
     linewidth: 3

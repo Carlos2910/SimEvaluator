@@ -368,27 +368,80 @@ def plot_selected_cases(config: dict[str, Any], comparison_output_folder: Path) 
 
     written: list[Path] = []
 
-    # 1. Overall best across all datasets — always one combined figure
-    p = plot_one_selected_figure(
-        selected,
-        **shared_kwargs,
-        output_name=f"{channel}_selected",
-    )
-    if p is not None:
-        written.append(p)
+    groups = plot_cfg.get("groups")
+    if groups and isinstance(groups, dict):
+        by_dataset_path = comparison_output_folder / "selected_best_simulations_total_force_by_dataset.csv"
+        selected_by_dataset = pd.read_csv(by_dataset_path) if by_dataset_path.exists() else pd.DataFrame()
 
-    # 2. Per-dataset best — one figure per dataset, independent of case naming
-    by_dataset_path = comparison_output_folder / "selected_best_simulations_total_force_by_dataset.csv"
-    if by_dataset_path.exists():
-        selected_by_dataset = pd.read_csv(by_dataset_path)
-        for dataset, dataset_rows in selected_by_dataset.groupby("dataset", sort=True):
+        for group_name, group_def in groups.items():
+            if isinstance(group_def, list):
+                group_selected = selected[selected["case"].isin(group_def)]
+                group_selected_by_dataset = (
+                    selected_by_dataset[selected_by_dataset["case"].isin(group_def)]
+                    if not selected_by_dataset.empty
+                    else pd.DataFrame()
+                )
+            elif isinstance(group_def, str):
+                import re
+                try:
+                    rx = re.compile(group_def)
+                    group_selected = selected[selected["case"].apply(lambda c: bool(rx.search(c)))]
+                    group_selected_by_dataset = (
+                        selected_by_dataset[selected_by_dataset["case"].apply(lambda c: bool(rx.search(c)))]
+                        if not selected_by_dataset.empty
+                        else pd.DataFrame()
+                    )
+                except re.error:
+                    group_selected = selected[selected["case"].str.contains(group_def, regex=False)]
+                    group_selected_by_dataset = (
+                        selected_by_dataset[selected_by_dataset["case"].str.contains(group_def, regex=False)]
+                        if not selected_by_dataset.empty
+                        else pd.DataFrame()
+                    )
+            else:
+                continue
+
+            # 1. Group-specific overall best
             p = plot_one_selected_figure(
-                dataset_rows,
+                group_selected,
                 **shared_kwargs,
-                output_name=f"{channel}_selected_{dataset}",
+                output_name=f"{group_name}_{channel}_selected",
             )
             if p is not None:
                 written.append(p)
+
+            # 2. Group-specific per-dataset best
+            if not group_selected_by_dataset.empty:
+                for dataset, dataset_rows in group_selected_by_dataset.groupby("dataset", sort=True):
+                    p = plot_one_selected_figure(
+                        dataset_rows,
+                        **shared_kwargs,
+                        output_name=f"{group_name}_{channel}_selected_{dataset}",
+                    )
+                    if p is not None:
+                        written.append(p)
+    else:
+        # 1. Overall best across all datasets — always one combined figure
+        p = plot_one_selected_figure(
+            selected,
+            **shared_kwargs,
+            output_name=f"{channel}_selected",
+        )
+        if p is not None:
+            written.append(p)
+
+        # 2. Per-dataset best — one figure per dataset, independent of case naming
+        by_dataset_path = comparison_output_folder / "selected_best_simulations_total_force_by_dataset.csv"
+        if by_dataset_path.exists():
+            selected_by_dataset = pd.read_csv(by_dataset_path)
+            for dataset, dataset_rows in selected_by_dataset.groupby("dataset", sort=True):
+                p = plot_one_selected_figure(
+                    dataset_rows,
+                    **shared_kwargs,
+                    output_name=f"{channel}_selected_{dataset}",
+                )
+                if p is not None:
+                    written.append(p)
 
     return written
 
